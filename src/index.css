@@ -1,0 +1,49 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    /* ── 베이지/오프화이트 라이트 테마 ── */
+    --color-bg:              #F5F4F0;
+    --color-surface:         #FFFFFF;
+    --color-border:          #E0DED8;
+    --color-border-secondary:#D0CEC7;
+    --color-border-tertiary: rgba(0,0,0,0.06);
+
+    --color-text:            #1c1a17;
+    --color-text-primary:    #0e0d0b;
+    --color-text-secondary:  #6a6860;
+    --color-text-tertiary:   rgba(30,28,22,0.4);
+    --color-muted:           rgba(30,28,22,0.32);
+
+    /* 모노크롬 액션 (검정) */
+    --color-accent:          #0e0d0b;
+    --color-accent-light:    #2d2b28;
+    --color-accent-hover:    #1c1a17;
+
+    --color-success:         #1e6b3a;
+    --color-success-border:  rgba(30,107,58,0.28);
+
+    /* 캔버스 도트 패턴 */
+    --dot-pattern: radial-gradient(rgba(0,0,0,0.11) 1.5px, transparent 1.5px);
+    --dot-size: 18px 18px;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background-color: var(--color-bg);
+    color: var(--color-text);
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    font-size: 14px;
+    letter-spacing: 0.01em;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  #root { min-height: 100svh; }
+
+  input:-webkit-autofill {
+    -webkit-box-shadow: 0 0 0 1000px var(--color-surface) inset !important;
+    -webkit-text-fill-color: var(--color-text-primary) !important;
+  }
+}
