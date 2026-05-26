@@ -3,11 +3,12 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { useAuthStore } from './stores/useAuthStore'
 import ProtectedRoute from './components/ui/ProtectedRoute'
 
-import Landing from './pages/Landing'
-import Login from './pages/Login'
+import Landing  from './pages/Landing'
+import Login    from './pages/Login'
 import Register from './pages/Register'
-import Main from './pages/Main'
-import Profile from './pages/Profile'
+import Main     from './pages/Main'
+import Profile  from './pages/Profile'
+import Callback from './pages/Callback'
 
 export default function App() {
   const init = useAuthStore((s) => s.init)
@@ -28,6 +29,7 @@ export default function App() {
         <Route path="/profile" element={
           <ProtectedRoute><Profile /></ProtectedRoute>
         } />
+        <Route path="/callback" element={<Callback />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>

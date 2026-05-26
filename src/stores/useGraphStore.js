@@ -1,5 +1,12 @@
 import { create } from 'zustand'
 
+// ─── Genre color palette ──────────────────────────────────────────────────────
+export const GENRE_COLORS = [
+  '#534AB7', '#0F6E56', '#993C1D', '#993556', '#185FA5', '#3B6D11',
+  '#7B4312', '#1A6B7C', '#5E2D79', '#1C5E7E', '#8B4513', '#2E6B4F',
+  '#6B3A2E', '#1E5A6B', '#7A3B5F', '#3B6B2E',
+]
+
 // ─── Dummy data (prototype-identical) ────────────────────────────────────────
 export const DUMMY_GENRES = [
   { id: 'g0', name: 'Electronic', color: '#534AB7' },
@@ -76,6 +83,20 @@ function buildInitialNodes() {
   return [...artists, ...tracks]
 }
 
+// ─── Simulation position cache (updated by GraphCanvas on sim end) ───────────
+const _posCache = new Map()
+
+export function updateSimPositions(simNodes) {
+  simNodes.forEach(n => { if (n.x != null) _posCache.set(n.id, { x: n.x, y: n.y }) })
+}
+
+export function enrichNodesWithPositions(nodes) {
+  return nodes.map(n => {
+    const pos = _posCache.get(n.id)
+    return pos ? { ...n, x: pos.x, y: pos.y } : n
+  })
+}
+
 // ─── Snapshot helper ─────────────────────────────────────────────────────────
 const snapshot = (state) => ({
   nodes: JSON.parse(JSON.stringify(state.nodes)),
@@ -102,7 +123,20 @@ export const useGraphStore = create((set) => ({
   }),
 
   addNode: (node) => set((state) => {
-    if (state.nodes.find(n => n.id === node.id)) return state
+    console.log('[GraphStore] addNode:', node.id, node.name, '| gids:', node.gids, '| added:', node.added)
+    const existing = state.nodes.find(n => n.id === node.id)
+    if (existing) {
+      if (existing.added) {
+        console.log('[GraphStore] addNode: 이미 추가됨 → 스킵')
+        return state
+      }
+      console.log('[GraphStore] addNode: 기존 노드 added→true')
+      const past = [...state.history.past, snapshot(state)]
+      return {
+        nodes: state.nodes.map(n => n.id === node.id ? { ...n, added: true } : n),
+        history: { past, future: [] },
+      }
+    }
     const past = [...state.history.past, snapshot(state)]
     return {
       nodes: [...state.nodes, node],
@@ -134,4 +168,34 @@ export const useGraphStore = create((set) => ({
   }),
 
   loadCanvas: (nodes, links, genres) => set({ nodes, links, genres }),
+
+  addGenre: (name) => {
+    let gid = null
+    set((state) => {
+      const existing = state.genres.find(g => g.name.toLowerCase() === name.toLowerCase())
+      if (existing) { gid = existing.id; return state }
+      gid = `g${state.genres.length}`
+      const color = GENRE_COLORS[state.genres.length % GENRE_COLORS.length]
+      return { genres: [...state.genres, { id: gid, name, color }] }
+    })
+    return gid
+  },
+
+  addLink: (source, target) => set((state) => {
+    const exists = state.links.some(
+      l => (l.source === source && l.target === target) ||
+           (l.source === target && l.target === source)
+    )
+    if (exists) return state
+    return { links: [...state.links, { source, target }] }
+  }),
 }))
+
+// ─── Standalone helper ────────────────────────────────────────────────────────
+export function resolveGenreIds(genreNames) {
+  const { addGenre } = useGraphStore.getState()
+  const gids = genreNames.slice(0, 3).map(name => addGenre(name))
+  console.log('[resolveGenreIds] input:', genreNames.slice(0, 3), '→ gids:', gids,
+    '| 현재 genres:', useGraphStore.getState().genres.map(g => `${g.id}:${g.name}`))
+  return gids
+}

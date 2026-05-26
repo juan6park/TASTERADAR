@@ -1,0 +1,207 @@
+import { useState, useRef, useCallback } from 'react'
+import { useGraphStore, resolveGenreIds } from '../../stores/useGraphStore'
+import { searchSpotify, getArtist, getRelatedArtists } from '../../services/spotify'
+
+const TYPE_LABELS = { all: '전체', artist: '아티스트', track: '트랙' }
+
+export default function SearchTab() {
+  const [query,   setQuery]   = useState('')
+  const [type,    setType]    = useState('all')
+  const [results, setResults] = useState({ artists: [], tracks: [] })
+  const [loading, setLoading] = useState(false)
+  const [error,   setError]   = useState(null)
+
+  const debounceRef        = useRef(null)
+  const storeNodes         = useGraphStore(s => s.nodes)
+  const { addNode, addLink } = useGraphStore()
+
+  const runSearch = useCallback(async (q, t) => {
+    if (!q.trim()) { setResults({ artists: [], tracks: [] }); return }
+    setLoading(true); setError(null)
+    try {
+      const res = await searchSpotify(q, t)
+      setResults(res)
+    } catch {
+      setError(true)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  const handleChange = (e) => {
+    const q = e.target.value
+    setQuery(q)
+    clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(() => runSearch(q, type), 350)
+  }
+
+  const handleTypeChange = (t) => {
+    setType(t)
+    clearTimeout(debounceRef.current)
+    if (query.trim()) runSearch(query, t)
+  }
+
+  const isAdded = (id) => storeNodes.some(n => n.id === id)
+
+  const handleAddArtist = useCallback(async (artist) => {
+    const detail = await getArtist(artist.id)
+    const genres = detail.genres ?? []
+    console.log('[추가] 아티스트:', artist.name, '| genres:', genres)
+    const gids = resolveGenreIds(genres)
+    addNode({ id: artist.id, type: 'artist', name: artist.name, gids, imageUrl: artist.imageUrl, previewUrl: null, added: true })
+
+    try {
+      const related = await getRelatedArtists(artist.id)
+      console.log('[추가] 연관 아티스트:', related.map(r => r.name))
+      const { nodes } = useGraphStore.getState()
+      related.forEach(r => {
+        if (nodes.find(n => n.id === r.id)) {
+          console.log('[추가] addLink:', artist.id, '→', r.id, r.name)
+          addLink(artist.id, r.id)
+        }
+      })
+    } catch (err) {
+      console.warn('[추가] related 실패:', err.message)
+    }
+  }, [addNode, addLink])
+
+  const handleAddTrack = useCallback(async (track) => {
+    const parentDetail = await getArtist(track.artistId)
+    const genres = parentDetail.genres ?? []
+    console.log('[추가] 트랙:', track.name, '| genres:', genres)
+    const gids = resolveGenreIds(genres)
+    const { nodes } = useGraphStore.getState()
+    if (!nodes.find(n => n.id === track.artistId)) {
+      addNode({ id: track.artistId, type: 'artist', name: track.artistName, gids, imageUrl: '', previewUrl: null, added: false })
+    }
+    addNode({ id: track.id, type: 'track', name: track.name, artistId: track.artistId, artistName: track.artistName, gids, imageUrl: track.imageUrl, previewUrl: track.previewUrl, added: true })
+  }, [addNode])
+
+  const showArtists = type !== 'track'  && results.artists.length > 0
+  const showTracks  = type !== 'artist' && results.tracks.length  > 0
+  const empty       = !loading && !error && query.trim() && !showArtists && !showTracks
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+      {/* Search input */}
+      <div style={{ padding: '10px 12px 0' }}>
+        <input
+          value={query}
+          onChange={handleChange}
+          placeholder="아티스트 또는 트랙 검색…"
+          style={{
+            width: '100%', boxSizing: 'border-box',
+            padding: '7px 10px', fontSize: 12,
+            border: '1px solid var(--color-border)',
+            borderRadius: 5, background: 'var(--color-bg)',
+            color: 'var(--color-text-primary)', outline: 'none',
+            fontFamily: 'inherit',
+          }}
+        />
+      </div>
+
+      {/* Type filter */}
+      <div style={{ display: 'flex', gap: 4, padding: '8px 12px 0' }}>
+        {Object.entries(TYPE_LABELS).map(([t, label]) => (
+          <button key={t} onClick={() => handleTypeChange(t)} style={{
+            padding: '3px 10px', borderRadius: 20, fontSize: 10,
+            cursor: 'pointer', fontFamily: 'inherit', letterSpacing: '0.01em',
+            transition: 'all .12s',
+            ...(type === t
+              ? { background: 'var(--color-text-primary)', color: '#fff', border: '1px solid var(--color-text-primary)' }
+              : { background: 'transparent', color: 'var(--color-text-secondary)', border: '1px solid var(--color-border-secondary)' }
+            ),
+          }}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* Results */}
+      <div style={{ flex: 1, overflowY: 'auto', padding: '8px 12px', marginTop: 4 }}>
+        {error && (
+          <p style={{ fontSize: 11, color: 'var(--color-text-tertiary)', textAlign: 'center', marginTop: 24 }}>
+            검색 중 오류가 발생했습니다.
+          </p>
+        )}
+
+        {loading && (
+          <p style={{ fontSize: 11, color: 'var(--color-text-tertiary)', textAlign: 'center', marginTop: 24 }}>
+            검색 중…
+          </p>
+        )}
+
+        {empty && (
+          <p style={{ fontSize: 11, color: 'var(--color-text-tertiary)', textAlign: 'center', marginTop: 24 }}>
+            결과가 없습니다.
+          </p>
+        )}
+
+        {showArtists && (
+          <>
+            <SectionLabel>아티스트</SectionLabel>
+            {results.artists.map(a => (
+              <ResultItem key={a.id} item={a} kind="artist"
+                added={isAdded(a.id)} onAdd={() => handleAddArtist(a)} />
+            ))}
+          </>
+        )}
+
+        {showTracks && (
+          <>
+            <SectionLabel>트랙</SectionLabel>
+            {results.tracks.map(t => (
+              <ResultItem key={t.id} item={t} kind="track"
+                added={isAdded(t.id)} onAdd={() => handleAddTrack(t)} />
+            ))}
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function SectionLabel({ children }) {
+  return (
+    <p style={{ fontSize: 9, fontWeight: 600, color: 'var(--color-text-tertiary)', letterSpacing: '0.08em', textTransform: 'uppercase', margin: '6px 0 4px' }}>
+      {children}
+    </p>
+  )
+}
+
+function ResultItem({ item, kind, added, onAdd }) {
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 8,
+      padding: '6px 0',
+      borderBottom: '1px solid var(--color-border-tertiary)',
+    }}>
+      {item.imageUrl
+        ? <img src={item.imageUrl} alt="" style={{ width: 32, height: 32, borderRadius: kind === 'artist' ? '50%' : 3, objectFit: 'cover', flexShrink: 0 }} />
+        : <div style={{ width: 32, height: 32, borderRadius: kind === 'artist' ? '50%' : 3, background: 'var(--color-border)', flexShrink: 0 }} />
+      }
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 11, fontWeight: 500, color: 'var(--color-text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {item.name}
+        </div>
+        {kind === 'track' && (
+          <div style={{ fontSize: 10, color: 'var(--color-text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {item.artistName}
+          </div>
+        )}
+      </div>
+      <button
+        onClick={() => !added && onAdd()}
+        style={{
+          padding: '3px 9px', borderRadius: 4, fontSize: 10,
+          background: added ? 'transparent' : 'var(--color-text-primary)',
+          border: added ? '1px solid var(--color-border)' : '1px solid var(--color-text-primary)',
+          color: added ? 'var(--color-muted)' : '#fff',
+          cursor: added ? 'not-allowed' : 'pointer', flexShrink: 0, fontFamily: 'inherit',
+        }}
+      >
+        {added ? '추가됨' : '추가'}
+      </button>
+    </div>
+  )
+}

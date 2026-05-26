@@ -19,10 +19,22 @@ const GCENTER_FRACS = {
   g5: { cx: 330 / 680, cy: 205 / 460 },
 }
 
-export function getGenreCenters(W, H) {
-  return Object.fromEntries(
+export function getGenreCenters(W, H, genres = []) {
+  const centers = Object.fromEntries(
     Object.entries(GCENTER_FRACS).map(([id, f]) => [id, { cx: f.cx * W, cy: f.cy * H }])
   )
+  // Extra genres beyond the predefined 6 get radial positions
+  const extras = genres.filter(g => !GCENTER_FRACS[g.id])
+  if (extras.length) {
+    extras.forEach((g, i) => {
+      const angle = (2 * Math.PI * i) / extras.length - Math.PI / 2
+      centers[g.id] = {
+        cx: W / 2 + Math.cos(angle) * W * 0.32,
+        cy: H / 2 + Math.sin(angle) * H * 0.32,
+      }
+    })
+  }
+  return centers
 }
 
 export function initNodePositions(nodes, genreCenters, W, H) {

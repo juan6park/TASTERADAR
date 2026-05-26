@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { useGraphStore } from '../../stores/useGraphStore'
+import { useGraphStore, updateSimPositions } from '../../stores/useGraphStore'
 import { buildSimulation, getGenreCenters, initNodePositions } from './ForceGraph'
 import { buildHeatmap } from './HeatmapLayer'
 import NodeTooltip from './NodeTooltip'
@@ -32,7 +32,7 @@ export default function GraphCanvas() {
   const hideTimerRef      = useRef(null)
 
   const {
-    nodes: storeNodes, links: storeLinks, genres,
+    nodes: storeNodes, genres,
     mode, setMode, setAdded,
     undo, redo,
   } = useGraphStore()
@@ -49,9 +49,10 @@ export default function GraphCanvas() {
   const [tooltip, setTooltip] = useState(null)
   const [simDone, setSimDone] = useState(false)
 
-  const nodeMap  = useRef(new Map())
-  const getNode  = (id) => nodeMap.current.get(id)
-  const getGenre = (gid) => genresRef.current.find(g => g.id === gid)
+  const nodeMap      = useRef(new Map())
+  const getNode      = (id) => nodeMap.current.get(id)
+  const getGenre     = (gid) => genresRef.current.find(g => g.id === gid)
+  const prevCountRef = useRef({ nodes: -1, links: -1, genres: -1 })
 
   // ── Draw ─────────────────────────────────────────────────────────────────
   const draw = useCallback(() => {
@@ -94,8 +95,7 @@ export default function GraphCanvas() {
       if (!n1 || !n2 || n1.x == null || n2.x == null) return
       if (m === 'view' && (!n1.added || !n2.added)) return
       const both = n1.added && n2.added
-      const gc = getGenre(n1.gids[0])
-      if (!gc) return
+      const gc = getGenre(n1.gids?.[0]) ?? { color: '#888888' }
       ctx.beginPath(); ctx.moveTo(n1.x, n1.y); ctx.lineTo(n2.x, n2.y)
       ctx.strokeStyle = rgba(gc.color, both ? 0.4 : 0.15)
       ctx.lineWidth   = both ? 1 : 0.5
@@ -107,8 +107,7 @@ export default function GraphCanvas() {
       const parent = getNode(t.artistId)
       if (!parent || t.x == null || parent.x == null) return
       if (m === 'view' && (!parent.added || !t.added)) return
-      const gc  = getGenre(t.gids?.[0])
-      if (!gc) return
+      const gc  = getGenre(t.gids?.[0]) ?? { color: '#888888' }
       const vis = parent.added && t.added
       ctx.beginPath(); ctx.moveTo(parent.x, parent.y); ctx.lineTo(t.x, t.y)
       ctx.strokeStyle = rgba(gc.color, vis ? 0.28 : 0.1)
@@ -124,8 +123,7 @@ export default function GraphCanvas() {
     visTracks.forEach(t => {
       if (t.x == null) return
       const parent = getNode(t.artistId)
-      const gc  = getGenre(t.gids?.[0])
-      if (!gc) return
+      const gc = getGenre(t.gids?.[0]) ?? { color: '#9b9b9b' }
       const isHov = hovId.current === t.id
       const vis   = parent?.added && t.added
       const r     = vis ? 3.5 : 2.5
@@ -155,8 +153,7 @@ export default function GraphCanvas() {
 
     visArtists.forEach(ar => {
       if (ar.x == null) return
-      const gc    = getGenre(ar.gids?.[0])
-      if (!gc) return
+      const gc = getGenre(ar.gids?.[0]) ?? { color: '#9b9b9b' }
       const isHov = hovId.current === ar.id
       const r     = ar.added ? 7 : 5
       const multi = ar.gids?.length > 1
@@ -231,9 +228,15 @@ export default function GraphCanvas() {
     return null
   }, [])
 
+  // ── Selectors for detecting store additions (search nodes) ───────────────
+  const storeNodeCount  = useGraphStore(s => s.nodes.length)
+  const storeGenreCount = useGraphStore(s => s.genres.length)
+  const storeLinks      = useGraphStore(s => s.links)
+
   // ── Init simulation (once on mount) ──────────────────────────────────────
   useEffect(() => {
-    const gc = getGenreCenters(W, H)
+    const gc = getGenreCenters(W, H, genres)
+    prevCountRef.current = { nodes: storeNodes.length, genres: genres.length }
     simNodesRef.current = storeNodes.map(n => ({ ...n }))
     initNodePositions(simNodesRef.current, gc, W, H)
 
@@ -250,10 +253,58 @@ export default function GraphCanvas() {
     simLinksRef.current = storeLinks.map(l => ({ ...l }))
     simRef.current = buildSimulation({ nodes: simNodesRef.current, links: simLinksRef.current, genreCenters: gc, W, H })
     simRef.current.on('tick', () => { heatDirty.current = true; drawRef.current?.() })
-    simRef.current.on('end',  () => { setSimDone(true); drawRef.current?.() })
+    simRef.current.on('end',  () => { updateSimPositions(simNodesRef.current); setSimDone(true); drawRef.current?.() })
     simRef.current.alpha(1).restart()
     return () => { simRef.current?.stop(); setSimDone(false) }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Sync new search-added nodes / genres → full simulation rebuild ───────
+  useEffect(() => {
+    if (!simRef.current) return
+    const nc = storeNodeCount, gc = storeGenreCount
+    const prev = prevCountRef.current
+    if (nc === prev.nodes && gc === prev.genres) return
+    console.log('[GraphCanvas] sync: nodes', prev.nodes, '→', nc, '| genres', prev.genres, '→', gc)
+    prevCountRef.current = { nodes: nc, genres: gc }
+
+    const state = useGraphStore.getState()
+    const existingPosMap = new Map(
+      simNodesRef.current.map(n => [n.id, { x: n.x, y: n.y, vx: n.vx ?? 0, vy: n.vy ?? 0 }])
+    )
+    const newSimNodes = state.nodes.map(n => {
+      const pos = existingPosMap.get(n.id)
+      return pos ? { ...n, ...pos } : { ...n }
+    })
+    const genreCenters = getGenreCenters(W, H, state.genres)
+    const novelNodes   = newSimNodes.filter(n => !existingPosMap.has(n.id))
+    initNodePositions(novelNodes, genreCenters, W, H)
+
+    simRef.current.stop()
+    simNodesRef.current = newSimNodes
+    nodeMap.current     = new Map(newSimNodes.map(n => [n.id, n]))
+    simLinksRef.current = state.links.map(l => ({ ...l }))
+    genresRef.current   = state.genres
+
+    simRef.current = buildSimulation({ nodes: simNodesRef.current, links: simLinksRef.current, genreCenters, W, H })
+    simRef.current.on('tick', () => { heatDirty.current = true; drawRef.current?.() })
+    simRef.current.on('end',  () => { updateSimPositions(simNodesRef.current); setSimDone(true); drawRef.current?.() })
+    simRef.current.alpha(0.3).restart()
+    heatDirty.current = true
+  }, [storeNodeCount, storeGenreCount]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Links 변경 감지 → simulation에 반영 (경량 업데이트) ───────────────────
+  const skipFirstLinksRun = useRef(true)
+  useEffect(() => {
+    // 마운트 시 첫 실행은 init effect가 이미 링크를 설정했으므로 스킵
+    if (skipFirstLinksRun.current) { skipFirstLinksRun.current = false; return }
+    if (!simRef.current) return
+    // artistLinkForce가 클로저로 참조하는 배열을 in-place 업데이트
+    simLinksRef.current.length = 0
+    storeLinks.forEach(l => simLinksRef.current.push({ ...l }))
+    console.log('[GraphCanvas] links 업데이트 →', simLinksRef.current.length, '개')
+    simRef.current.alpha(0.3).restart()
+    heatDirty.current = true
+  }, [storeLinks]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Undo/Redo — simNodes와 store 동기화 ──────────────────────────────────
   const syncSimNodes = useCallback(() => {
