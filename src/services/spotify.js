@@ -1,10 +1,9 @@
 import axios from 'axios'
 
-const CLIENT_ID     = import.meta.env.VITE_SPOTIFY_CLIENT_ID
-const CLIENT_SECRET = import.meta.env.VITE_SPOTIFY_CLIENT_SECRET
-const REDIRECT_URI  = import.meta.env.VITE_SPOTIFY_REDIRECT_URI
-const BASE          = 'https://api.spotify.com/v1'
-const ACCOUNTS      = 'https://accounts.spotify.com'
+const CLIENT_ID    = import.meta.env.VITE_SPOTIFY_CLIENT_ID
+const REDIRECT_URI = import.meta.env.VITE_SPOTIFY_REDIRECT_URI
+const BASE         = 'https://api.spotify.com/v1'
+const ACCOUNTS     = 'https://accounts.spotify.com'
 
 // ── PKCE helpers ──────────────────────────────────────────────
 function toBase64Url(buffer) {
@@ -78,54 +77,6 @@ export async function refreshAccessToken(refreshToken) {
   return data  // { access_token, expires_in, refresh_token? }
 }
 
-// ── Client Credentials token (for public/search endpoints) ────
-let _ccToken  = null
-let _ccExpiry = 0
-
-async function getClientCredentialsToken() {
-  if (_ccToken && Date.now() < _ccExpiry - 60_000) return _ccToken
-  const res = await fetch(`${ACCOUNTS}/api/token`, {
-    method: 'POST',
-    headers: {
-      'Content-Type':  'application/x-www-form-urlencoded',
-      'Authorization': 'Basic ' + btoa(CLIENT_ID + ':' + CLIENT_SECRET),
-    },
-    body: 'grant_type=client_credentials',
-  })
-  if (!res.ok) throw new Error(`CC token fetch failed: ${res.status}`)
-  const data = await res.json()
-  _ccToken  = data.access_token
-  _ccExpiry = Date.now() + data.expires_in * 1000
-  return _ccToken
-}
-
-// ── Public GET helper (Client Credentials) ───────────────────
-// Uses fetch() — fully isolated from axios and its interceptors.
-async function ccGet(path, params = {}) {
-  const token = await getClientCredentialsToken()
-  console.log('[ccGet] path:', path, '| CC토큰 앞10자:', token?.slice(0, 10))
-
-  const url = new URL(`${BASE}${path}`)
-  Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, String(v)))
-
-  let res = await fetch(url.toString(), {
-    headers: { Authorization: `Bearer ${token}` },
-  })
-  console.log('[ccGet] fetch status:', res.status)
-
-  if (res.status === 401) {
-    _ccToken = null
-    const fresh = await getClientCredentialsToken()
-    res = await fetch(url.toString(), {
-      headers: { Authorization: `Bearer ${fresh}` },
-    })
-    console.log('[ccGet] retry status:', res.status)
-  }
-
-  if (!res.ok) throw new Error(`Spotify API error ${res.status}: ${path}`)
-  return res.json()
-}
-
 // ── Token provider — injected by useAuthStore to avoid circular import ──
 let _getToken  = () => null
 let _doRefresh = async () => null
@@ -135,7 +86,7 @@ export function setTokenProvider(getter, refresher) {
   _doRefresh = refresher
 }
 
-// ── OAuth API (user-specific endpoints only) ──────────────────
+// ── OAuth API (모든 엔드포인트) ────────────────────────────────
 const api = axios.create({ baseURL: BASE })
 
 api.interceptors.request.use(async (config) => {
@@ -159,7 +110,7 @@ api.interceptors.response.use(
   }
 )
 
-// ── Search (with genre inheritance for tracks) ─────────────────
+// ── Search ─────────────────────────────────────────────────────
 /**
  * @param {string} query
  * @param {'all'|'artist'|'track'} type
@@ -169,7 +120,9 @@ export async function searchSpotify(query, type = 'all') {
     type === 'artist' ? 'artist' :
     type === 'track'  ? 'track'  : 'artist,track'
 
-  const data = await ccGet('/search', { q: query, type: searchType, limit: 10, market: 'KR' })
+  const { data } = await api.get('/search', {
+    params: { q: query, type: searchType, limit: 10, market: 'KR' },
+  })
 
   const artists = (data.artists?.items ?? []).map(a => ({
     id:       a.id,
@@ -178,23 +131,18 @@ export async function searchSpotify(query, type = 'all') {
     imageUrl: a.images?.[0]?.url ?? '',
   }))
 
-  // Batch-fetch parent artist genres for tracks
   const trackItems = data.tracks?.items ?? []
   const artistGenreMap = {}
 
   if (trackItems.length) {
     const parentIds = [...new Set(trackItems.map(t => t.artists[0]?.id).filter(Boolean))]
-    for (let i = 0; i < parentIds.length; i += 50) {
-      const batch = parentIds.slice(i, i + 50)
-      console.log('[artists batch] ids:', batch)
-      console.log('[artists batch] CC토큰:', _ccToken?.slice(0, 10))
-      try {
-        const d = await ccGet('/artists', { ids: batch.join(',') })
-        d.artists.forEach(a => { artistGenreMap[a.id] = { name: a.name, genres: a.genres ?? [] } })
-      } catch (err) {
-        console.warn('[artists batch] 실패, 장르 없이 계속:', err.message)
-      }
-    }
+    await Promise.all(
+      parentIds.map(id =>
+        api.get(`/artists/${id}`)
+          .then(r => { artistGenreMap[id] = { name: r.data.name, genres: r.data.genres ?? [] } })
+          .catch(() => {})
+      )
+    )
   }
 
   const tracks = trackItems.map(t => {
@@ -205,7 +153,7 @@ export async function searchSpotify(query, type = 'all') {
       name:       t.name,
       artistId:   parentId,
       artistName: parentInfo.name ?? t.artists[0]?.name ?? '',
-      genres:     parentInfo.genres ?? [],  // batch 실패 시 빈 배열
+      genres:     parentInfo.genres ?? [],
       imageUrl:   t.album?.images?.[0]?.url ?? '',
       previewUrl: t.preview_url ?? null,
     }
@@ -214,15 +162,15 @@ export async function searchSpotify(query, type = 'all') {
   return { artists, tracks }
 }
 
-// ── Public single resources (Client Credentials) ──────────────
-export const getArtist         = (id) => ccGet(`/artists/${id}`)
-export const getRelatedArtists = (id) => ccGet(`/artists/${id}/related-artists`).then(d => d.artists ?? [])
+// ── Single resources ───────────────────────────────────────────
+export const getArtist         = (id) => api.get(`/artists/${id}`).then(r => r.data)
+export const getRelatedArtists = (id) => api.get(`/artists/${id}/related-artists`).then(r => r.data.artists ?? [])
 
-// ── User resources (OAuth required) ───────────────────────────
+// ── User resources ─────────────────────────────────────────────
 export const getSpotifyUser    = ()   => api.get('/me').then(r => r.data)
 export const getMyTopTracks    = ()   => api.get('/me/top/tracks',  { params: { limit: 20 } }).then(r => r.data)
 export const getMyTopArtists   = ()   => api.get('/me/top/artists', { params: { limit: 20 } }).then(r => r.data)
 
-// ── Playlist export (OAuth required) ──────────────────────────
+// ── Playlist export ────────────────────────────────────────────
 export const createPlaylist      = (userId, name)     => api.post(`/users/${userId}/playlists`, { name, public: false }).then(r => r.data)
 export const addTracksToPlaylist = (playlistId, uris) => api.post(`/playlists/${playlistId}/tracks`, { uris }).then(r => r.data)

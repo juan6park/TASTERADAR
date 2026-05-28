@@ -1,15 +1,17 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useAuthStore } from '../stores/useAuthStore'
+import { useAuthStore }  from '../stores/useAuthStore'
 import { useCanvasPersist } from '../hooks/useCanvasPersist'
 import GraphCanvas from '../components/canvas/GraphCanvas'
 import SidePanel   from '../components/panel/SidePanel'
+import AudioPlayer from '../components/ui/AudioPlayer'
 
 export default function Main() {
-  const { user, canvasLoaded } = useAuthStore()
+  const { user, canvasLoaded, spotifyToken } = useAuthStore()
   const navigate  = useNavigate()
   useCanvasPersist()
   const [panelOpen, setPanelOpen] = useState(true)
+  const spotifyConnected = !!spotifyToken
 
   useEffect(() => {
     if (!user) navigate('/login')
@@ -70,9 +72,41 @@ export default function Main() {
         </button>
       </header>
 
+      {/* Spotify 미연동 배너 */}
+      {!spotifyConnected && (
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12,
+          padding: '7px 20px', background: '#fff3cd',
+          borderBottom: '1px solid #ffd666', flexShrink: 0,
+        }}>
+          <span style={{ fontSize: 11, color: '#856404' }}>
+            Spotify 연동 후 아티스트·트랙을 검색할 수 있어요
+          </span>
+          <button
+            onClick={() => navigate('/profile')}
+            style={{
+              padding: '3px 10px', borderRadius: 20, fontSize: 10,
+              background: '#1DB954', color: '#fff', border: 'none',
+              cursor: 'pointer', fontFamily: 'inherit', fontWeight: 500,
+            }}
+          >
+            연동하기
+          </button>
+        </div>
+      )}
+
       {/* Body: side panel + canvas */}
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-        {panelOpen && <SidePanel />}
+        {/* 슬라이딩 사이드패널 */}
+        <div style={{
+          width: panelOpen ? 280 : 0,
+          flexShrink: 0,
+          overflow: 'hidden',
+          transition: 'width 0.2s ease',
+        }}>
+          <SidePanel />
+        </div>
+
         <div style={{ flex: 1, overflow: 'hidden' }}>
           {canvasLoaded
             ? <GraphCanvas />
@@ -82,6 +116,9 @@ export default function Main() {
           }
         </div>
       </div>
+
+      {/* 오디오 플레이어 (재생 중일 때만 표시) */}
+      <AudioPlayer />
     </div>
   )
 }

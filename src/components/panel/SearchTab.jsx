@@ -1,10 +1,16 @@
 import { useState, useRef, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useGraphStore, resolveGenreIds } from '../../stores/useGraphStore'
-import { searchSpotify, getArtist, getRelatedArtists } from '../../services/spotify'
+import { useAuthStore }  from '../../stores/useAuthStore'
+import { useAudioStore } from '../../stores/useAudioStore'
+import { searchSpotify, getArtist } from '../../services/spotify'
 
 const TYPE_LABELS = { all: '전체', artist: '아티스트', track: '트랙' }
 
 export default function SearchTab() {
+  const navigate         = useNavigate()
+  const spotifyConnected = useAuthStore(s => !!s.spotifyToken)
+
   const [query,   setQuery]   = useState('')
   const [type,    setType]    = useState('all')
   const [results, setResults] = useState({ artists: [], tracks: [] })
@@ -41,45 +47,71 @@ export default function SearchTab() {
     if (query.trim()) runSearch(query, t)
   }
 
-  const isAdded = (id) => storeNodes.some(n => n.id === id)
+  const isAdded = (id) => storeNodes.some(n => n.id === id && n.added)
+
+  const linkByGenre = useCallback((id, gids) => {
+    const { nodes } = useGraphStore.getState()
+    nodes.forEach(n => {
+      if (n.id === id || !n.added) return
+      if (gids.some(g => n.gids?.includes(g))) addLink(id, n.id)
+    })
+  }, [addLink])
 
   const handleAddArtist = useCallback(async (artist) => {
-    const detail = await getArtist(artist.id)
-    const genres = detail.genres ?? []
-    console.log('[추가] 아티스트:', artist.name, '| genres:', genres)
-    const gids = resolveGenreIds(genres)
-    addNode({ id: artist.id, type: 'artist', name: artist.name, gids, imageUrl: artist.imageUrl, previewUrl: null, added: true })
-
-    try {
-      const related = await getRelatedArtists(artist.id)
-      console.log('[추가] 연관 아티스트:', related.map(r => r.name))
-      const { nodes } = useGraphStore.getState()
-      related.forEach(r => {
-        if (nodes.find(n => n.id === r.id)) {
-          console.log('[추가] addLink:', artist.id, '→', r.id, r.name)
-          addLink(artist.id, r.id)
-        }
-      })
-    } catch (err) {
-      console.warn('[추가] related 실패:', err.message)
+    let genres = artist.genres ?? []
+    if (!genres.length) {
+      try {
+        const detail = await getArtist(artist.id)
+        genres = detail.genres ?? []
+      } catch {
+        genres = []
+      }
     }
-  }, [addNode, addLink])
+    const gids = genres.length ? resolveGenreIds(genres) : ['g_unknown']
+    addNode({ id: artist.id, type: 'artist', name: artist.name, gids, imageUrl: artist.imageUrl, previewUrl: null, added: true })
+    linkByGenre(artist.id, gids)
+  }, [addNode, linkByGenre])
 
   const handleAddTrack = useCallback(async (track) => {
-    const parentDetail = await getArtist(track.artistId)
-    const genres = parentDetail.genres ?? []
-    console.log('[추가] 트랙:', track.name, '| genres:', genres)
-    const gids = resolveGenreIds(genres)
+    let genres = track.genres ?? []
+    if (!genres.length) {
+      try {
+        const parentDetail = await getArtist(track.artistId)
+        genres = parentDetail.genres ?? []
+      } catch {
+        genres = []
+      }
+    }
+    const gids = genres.length ? resolveGenreIds(genres) : ['g_unknown']
     const { nodes } = useGraphStore.getState()
     if (!nodes.find(n => n.id === track.artistId)) {
       addNode({ id: track.artistId, type: 'artist', name: track.artistName, gids, imageUrl: '', previewUrl: null, added: false })
     }
     addNode({ id: track.id, type: 'track', name: track.name, artistId: track.artistId, artistName: track.artistName, gids, imageUrl: track.imageUrl, previewUrl: track.previewUrl, added: true })
-  }, [addNode])
+    linkByGenre(track.id, gids)
+  }, [addNode, linkByGenre])
 
   const showArtists = type !== 'track'  && results.artists.length > 0
   const showTracks  = type !== 'artist' && results.tracks.length  > 0
   const empty       = !loading && !error && query.trim() && !showArtists && !showTracks
+
+  if (!spotifyConnected) return (
+    <div style={{ padding: 24, textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
+      <p style={{ fontSize: 12, color: 'var(--color-text-secondary)', lineHeight: 1.6, margin: 0 }}>
+        검색하려면 Spotify 연동이 필요해요
+      </p>
+      <button
+        onClick={() => navigate('/profile')}
+        style={{
+          padding: '6px 16px', borderRadius: 20, fontSize: 11,
+          background: '#1DB954', color: '#fff', border: 'none',
+          cursor: 'pointer', fontFamily: 'inherit', fontWeight: 500,
+        }}
+      >
+        Spotify 연동하기
+      </button>
+    </div>
+  )
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
@@ -152,7 +184,8 @@ export default function SearchTab() {
             <SectionLabel>트랙</SectionLabel>
             {results.tracks.map(t => (
               <ResultItem key={t.id} item={t} kind="track"
-                added={isAdded(t.id)} onAdd={() => handleAddTrack(t)} />
+                added={isAdded(t.id)} onAdd={() => handleAddTrack(t)}
+                previewUrl={t.previewUrl} artistName={t.artistName} />
             ))}
           </>
         )}
@@ -169,7 +202,12 @@ function SectionLabel({ children }) {
   )
 }
 
-function ResultItem({ item, kind, added, onAdd }) {
+function ResultItem({ item, kind, added, onAdd, previewUrl, artistName }) {
+  const { play, currentTrackId, isPlaying } = useAudioStore()
+  const isTrack      = kind === 'track'
+  const hasPreview   = isTrack && !!previewUrl
+  const trackPlaying = currentTrackId === item.id && isPlaying
+
   return (
     <div style={{
       display: 'flex', alignItems: 'center', gap: 8,
@@ -184,12 +222,31 @@ function ResultItem({ item, kind, added, onAdd }) {
         <div style={{ fontSize: 11, fontWeight: 500, color: 'var(--color-text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {item.name}
         </div>
-        {kind === 'track' && (
+        {isTrack && (
           <div style={{ fontSize: 10, color: 'var(--color-text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {item.artistName}
           </div>
         )}
       </div>
+
+      {/* 미리듣기 버튼 (트랙만) */}
+      {isTrack && (
+        <button
+          onClick={() => hasPreview && play(item.id, previewUrl, item.name, artistName ?? item.artistName)}
+          title={hasPreview ? (trackPlaying ? '일시정지' : '미리듣기') : '미리보기 없음'}
+          style={{
+            width: 22, height: 22, borderRadius: '50%', border: 'none', flexShrink: 0,
+            background: trackPlaying ? 'var(--color-text-primary)' : hasPreview ? 'var(--color-border-secondary)' : 'var(--color-border)',
+            color: hasPreview ? '#fff' : 'var(--color-text-tertiary)',
+            fontSize: 9, cursor: hasPreview ? 'pointer' : 'not-allowed',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}
+        >
+          {trackPlaying ? '⏸' : '▶'}
+        </button>
+      )}
+
+      {/* 추가 버튼 */}
       <button
         onClick={() => !added && onAdd()}
         style={{

@@ -271,6 +271,23 @@ export default function GraphCanvas() {
     const existingPosMap = new Map(
       simNodesRef.current.map(n => [n.id, { x: n.x, y: n.y, vx: n.vx ?? 0, vy: n.vy ?? 0 }])
     )
+
+    // 새 노드가 없으면 (added만 바뀐 경우) rebuild 없이 동기화만
+    const novelIds = state.nodes.map(n => n.id).filter(id => !existingPosMap.has(id))
+    if (novelIds.length === 0) {
+      simNodesRef.current.forEach(sn => {
+        const found = state.nodes.find(n => n.id === sn.id)
+        if (found) {
+          sn.added = found.added
+          sn.gids  = found.gids?.length ? found.gids : sn.gids
+        }
+      })
+      genresRef.current = state.genres
+      heatDirty.current = true
+      drawRef.current?.()
+      return
+    }
+
     const newSimNodes = state.nodes.map(n => {
       const pos = existingPosMap.get(n.id)
       return pos ? { ...n, ...pos } : { ...n }
@@ -291,6 +308,59 @@ export default function GraphCanvas() {
     simRef.current.alpha(0.3).restart()
     heatDirty.current = true
   }, [storeNodeCount, storeGenreCount]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── added 상태 변화 → sim 노드 동기화 + 새 노드 추가 ───────────────────────
+  useEffect(() => {
+    if (!simRef.current) return
+    const state = useGraphStore.getState()
+    const storeN = state.nodes
+    let needRebuild = false
+
+    // 1. 기존 simNode 동기화
+    simNodesRef.current.forEach(sn => {
+      const found = storeN.find(n => n.id === sn.id)
+      if (!found) return
+      sn.added = found.added
+      if (found.gids?.length &&
+          JSON.stringify(found.gids) !== JSON.stringify(sn.gids)) {
+        sn.gids = found.gids
+        needRebuild = true
+      }
+    })
+
+    // 2. simNodesRef에 없는 새 노드 추가
+    const simIds = new Set(simNodesRef.current.map(n => n.id))
+    const novelNodes = storeN.filter(n => !simIds.has(n.id))
+
+    if (novelNodes.length) {
+      const genreCenters = getGenreCenters(W, H, state.genres)
+      initNodePositions(novelNodes, genreCenters, W, H)
+      simNodesRef.current.push(...novelNodes)
+      novelNodes.forEach(n => nodeMap.current.set(n.id, n))
+      needRebuild = true
+      console.log('[addedCount] 새 노드 추가:', novelNodes.map(n => n.name))
+    }
+
+    if (needRebuild) {
+      const genreCenters = getGenreCenters(W, H, state.genres)
+      simLinksRef.current = state.links.map(l => ({ ...l }))
+      genresRef.current   = state.genres
+      nodeMap.current     = new Map(simNodesRef.current.map(n => [n.id, n]))
+      simRef.current.stop()
+      simRef.current = buildSimulation({
+        nodes: simNodesRef.current,
+        links: simLinksRef.current,
+        genreCenters,
+        W, H,
+      })
+      simRef.current.on('tick', () => { heatDirty.current = true; drawRef.current?.() })
+      simRef.current.on('end',  () => { updateSimPositions(simNodesRef.current); setSimDone(true); drawRef.current?.() })
+      simRef.current.alpha(0.3).restart()
+    }
+
+    heatDirty.current = true
+    drawRef.current?.()
+  }, [addedCount]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Links 변경 감지 → simulation에 반영 (경량 업데이트) ───────────────────
   const skipFirstLinksRun = useRef(true)

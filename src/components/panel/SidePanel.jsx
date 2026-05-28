@@ -43,10 +43,14 @@ export default function SidePanel() {
         ))}
       </div>
 
-      {/* Tab content */}
+      {/* Tab content — 두 탭 모두 마운트 유지, 활성 탭만 표시 */}
       <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-        {active === 'search'  && <SearchTab />}
-        {active === 'archive' && <ArchiveTab />}
+        <div style={{ flex: 1, display: active === 'search' ? 'flex' : 'none', flexDirection: 'column', overflow: 'hidden' }}>
+          <SearchTab />
+        </div>
+        <div style={{ flex: 1, display: active === 'archive' ? 'flex' : 'none', flexDirection: 'column', overflow: 'hidden' }}>
+          <ArchiveTab />
+        </div>
       </div>
     </div>
   )

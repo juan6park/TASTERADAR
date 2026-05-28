@@ -13,20 +13,22 @@ export const useAuthStore = create((set, get) => ({
   spotifyUser:         null,
 
   init: async () => {
+    // 토큰 프로바이더를 먼저 등록 (lazy getter — 항상 최신 store 값을 반환)
+    setTokenProvider(
+      () => get().spotifyToken,
+      () => get().refreshSpotifyToken(),
+    )
+
     const { data: { session } } = await supabase.auth.getSession()
     const user = session?.user ?? null
     set({ user, loading: false })
 
     if (user) {
-      get().loadSpotifyTokenFromDb()
+      // Spotify 토큰을 먼저 await — canvasLoaded 전에 토큰이 준비되어야 함
+      await get().loadSpotifyTokenFromDb()
       await get().loadCanvasState()
     }
     set({ canvasLoaded: true })
-
-    setTokenProvider(
-      () => get().spotifyToken,
-      () => get().refreshSpotifyToken(),
-    )
 
     supabase.auth.onAuthStateChange((_event, session) => {
       const prevUser = get().user
@@ -61,28 +63,74 @@ export const useAuthStore = create((set, get) => ({
   loadSpotifyTokenFromDb: async () => {
     const { user } = get()
     if (!user) return
-    const { data } = await supabase
+    const { data, error: loadErr } = await supabase
       .from('profiles')
-      .select('spotify_access_token, spotify_refresh_token')
+      .select('spotify_access_token, spotify_refresh_token, spotify_connected_at')
       .eq('id', user.id)
       .maybeSingle()
-    if (data?.spotify_access_token) {
-      set({
-        spotifyToken:        data.spotify_access_token,
-        spotifyRefreshToken: data.spotify_refresh_token ?? null,
-      })
+
+    if (loadErr) { console.error('[loadSpotifyTokenFromDb] 조회 오류:', loadErr.message); return }
+    if (!data?.spotify_access_token) return
+
+    // 55분 기준 만료 체크 후 자동 갱신
+    const connectedAt = data.spotify_connected_at
+      ? new Date(data.spotify_connected_at).getTime()
+      : 0
+    const isExpired = Date.now() - connectedAt > 55 * 60 * 1000
+
+    if (isExpired && data.spotify_refresh_token) {
+      try {
+        const fresh = await refreshAccessToken(data.spotify_refresh_token)
+        await supabase.from('profiles').update({
+          spotify_access_token: fresh.access_token,
+          spotify_connected_at: new Date().toISOString(),
+          ...(fresh.refresh_token ? { spotify_refresh_token: fresh.refresh_token } : {}),
+        }).eq('id', user.id)
+        set({
+          spotifyToken:        fresh.access_token,
+          spotifyRefreshToken: fresh.refresh_token ?? data.spotify_refresh_token,
+        })
+        return
+      } catch {
+        // refresh 실패 시 기존 토큰으로 시도
+      }
     }
+
+    set({
+      spotifyToken:        data.spotify_access_token,
+      spotifyRefreshToken: data.spotify_refresh_token ?? null,
+    })
   },
 
   saveSpotifyTokensToDb: async (accessToken, refreshToken, expiresIn, spotifyUser) => {
-    const { user } = get()
-    if (!user) return
+    let { user } = get()
+    // Callback 페이지에서 init()보다 먼저 호출될 수 있으므로 세션에서 직접 조회
+    if (!user) {
+      const { data: { session } } = await supabase.auth.getSession()
+      user = session?.user ?? null
+      if (user) set({ user, loading: false })
+    }
+    if (!user) { console.error('[saveSpotifyTokensToDb] user가 null — 저장 불가'); return }
+
     const expiry = Date.now() + expiresIn * 1000
-    await supabase.from('profiles').update({
-      spotify_access_token:  accessToken,
-      spotify_refresh_token: refreshToken,
-      spotify_connected_at:  new Date().toISOString(),
-    }).eq('id', user.id)
+    const { error, count } = await supabase
+      .from('profiles')
+      .update({
+        spotify_access_token:  accessToken,
+        spotify_refresh_token: refreshToken,
+        spotify_connected_at:  new Date().toISOString(),
+      }, { count: 'exact' })
+      .eq('id', user.id)
+
+    if (error) {
+      console.error('[saveSpotifyTokensToDb] Supabase 오류:', error.message, '| code:', error.code)
+      console.error('→ Supabase profiles 테이블에 spotify_access_token, spotify_refresh_token, spotify_connected_at 컬럼이 있는지 확인하세요.')
+    } else if (!count) {
+      console.warn('[saveSpotifyTokensToDb] 업데이트된 행이 없습니다. RLS UPDATE 정책 또는 profiles 행 누락을 확인하세요. user.id:', user.id)
+    } else {
+      console.log('[saveSpotifyTokensToDb] Supabase 저장 완료 ✓')
+    }
+
     set({ spotifyToken: accessToken, spotifyRefreshToken: refreshToken, tokenExpiry: expiry, spotifyUser })
   },
 
@@ -96,6 +144,7 @@ export const useAuthStore = create((set, get) => ({
       if (user) {
         await supabase.from('profiles').update({
           spotify_access_token: access_token,
+          spotify_connected_at: new Date().toISOString(),
           ...(refresh_token ? { spotify_refresh_token: refresh_token } : {}),
         }).eq('id', user.id)
       }
