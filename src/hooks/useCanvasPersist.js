@@ -11,23 +11,21 @@ export function useCanvasPersist() {
     if (!userId) return
 
     const unsub = useGraphStore.subscribe((state, prev) => {
-      if (state.nodes === prev.nodes && state.links === prev.links) return
+      if (state.nodes === prev.nodes && state.links === prev.links && state.genres === prev.genres) return
 
       clearTimeout(timerRef.current)
       timerRef.current = setTimeout(async () => {
         const enrichedNodes = enrichNodesWithPositions(state.nodes)
-        const { error } = await supabase.from('canvas_state').upsert(
-          {
-            user_id:    userId,
-            nodes:      enrichedNodes,
-            links:      state.links,
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: 'user_id' }
-        )
-        if (error) console.warn('[useCanvasPersist] 저장 실패:', error.message, error.code)
-        else        console.log('[useCanvasPersist] 저장 완료')
-      }, 500)
+        try {
+          await supabase.from('canvas_state').upsert(
+            { user_id: userId, nodes: enrichedNodes, links: state.links, genres: state.genres },
+            { onConflict: 'user_id' }
+          )
+          console.log('[useCanvasPersist] 저장 완료')
+        } catch (err) {
+          console.warn('[useCanvasPersist] 저장 실패:', err.message)
+        }
+      }, 2000)
     })
 
     return () => {

@@ -164,16 +164,15 @@ export const useAuthStore = create((set, get) => ({
     const { user } = get()
     if (!user) return
     try {
-      const { data, error } = await supabase
+      const { data } = await supabase
         .from('canvas_state')
-        .select('nodes, links')
+        .select('nodes, links, genres')
         .eq('user_id', user.id)
         .maybeSingle()
-      if (error) { console.warn('[loadCanvasState] 조회 실패:', error.message); return }
       if (data?.nodes) {
         const { loadCanvas } = useGraphStore.getState()
         const nodes = data.nodes.map(({ fx, fy, index, vx, vy, ...rest }) => ({ ...rest, vx: 0, vy: 0 }))
-        loadCanvas(nodes, data.links ?? [], [])
+        loadCanvas(nodes, data.links ?? [], data.genres ?? [])
       }
     } catch (err) {
       console.warn('[loadCanvasState] 불러오기 실패:', err.message)
