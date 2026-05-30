@@ -81,10 +81,11 @@ export default function GraphCanvas() {
       members.forEach(n => { cx += n.x; cy += n.y })
       cx /= members.length; cy /= members.length
       const minY = Math.min(...members.map(n => n.y))
+      const labelY = Math.max(16, minY - 32)
       ctx.font = '500 9px sans-serif'
       ctx.fillStyle = rgba(g.color, 0.55)
       ctx.textAlign = 'center'
-      ctx.fillText(g.name.toUpperCase(), cx, minY - 18)
+      ctx.fillText(g.name.toUpperCase(), cx, labelY)
       ctx.textAlign = 'left'
     })
 
@@ -184,7 +185,9 @@ export default function GraphCanvas() {
       if (ar.added || isHov) {
         ctx.font      = `${ar.added ? '500' : '400'} ${ar.added ? 11 : 10}px sans-serif`
         ctx.fillStyle = ar.added ? TEXT_COL : MUTED_COL
-        ctx.fillText(ar.name, ar.x + r + 5, ar.y + 4)
+        ctx.textAlign = 'center'
+        ctx.fillText(ar.name, ar.x, ar.y + r + 14)
+        ctx.textAlign = 'left'
       }
     })
   }, [])
