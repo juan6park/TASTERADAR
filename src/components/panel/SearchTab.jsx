@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom'
 import { useGraphStore, resolveGenreIds } from '../../stores/useGraphStore'
 import { useAuthStore }  from '../../stores/useAuthStore'
 import { useAudioStore } from '../../stores/useAudioStore'
-import { searchSpotify, getArtist } from '../../services/spotify'
+import { searchSpotify } from '../../services/spotify'
+import { getArtistGenres } from '../../services/lastfm'
 
 const TYPE_LABELS = { all: '전체', artist: '아티스트', track: '트랙' }
 
@@ -58,30 +59,16 @@ export default function SearchTab() {
   }, [addLink])
 
   const handleAddArtist = useCallback(async (artist) => {
-    let genres = artist.genres ?? []
-    if (!genres.length) {
-      try {
-        const detail = await getArtist(artist.id)
-        genres = detail.genres ?? []
-      } catch {
-        genres = []
-      }
-    }
+    const genres = await getArtistGenres(artist.name)
+    console.log('[Last.fm] artist genres:', artist.name, '→', genres)
     const gids = genres.length ? resolveGenreIds(genres) : ['g_unknown']
     addNode({ id: artist.id, type: 'artist', name: artist.name, gids, imageUrl: artist.imageUrl, previewUrl: null, added: true })
     linkByGenre(artist.id, gids)
   }, [addNode, linkByGenre])
 
   const handleAddTrack = useCallback(async (track) => {
-    let genres = track.genres ?? []
-    if (!genres.length) {
-      try {
-        const parentDetail = await getArtist(track.artistId)
-        genres = parentDetail.genres ?? []
-      } catch {
-        genres = []
-      }
-    }
+    const genres = await getArtistGenres(track.artistName)
+    console.log('[Last.fm] track genres:', track.artistName, '→', genres)
     const gids = genres.length ? resolveGenreIds(genres) : ['g_unknown']
     const { nodes } = useGraphStore.getState()
     if (!nodes.find(n => n.id === track.artistId)) {

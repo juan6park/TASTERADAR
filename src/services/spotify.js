@@ -87,11 +87,16 @@ export function setTokenProvider(getter, refresher) {
 }
 
 // ── OAuth API (모든 엔드포인트) ────────────────────────────────
-const api = axios.create({ baseURL: BASE })
+const api = axios.create({
+  baseURL: BASE,
+  headers: { 'Accept-Language': 'en' },  // locale=ko 자동 적용 방지
+})
 
 api.interceptors.request.use(async (config) => {
   const token = await _getToken()
   if (token) config.headers.Authorization = `Bearer ${token}`
+  // 브라우저 로케일로 인해 locale=ko 가 자동 삽입되는 경우 제거
+  if (config.params?.locale) delete config.params.locale
   return config
 })
 
@@ -163,7 +168,7 @@ export async function searchSpotify(query, type = 'all') {
 }
 
 // ── Single resources ───────────────────────────────────────────
-export const getArtist         = (id) => api.get(`/artists/${id}`).then(r => r.data)
+export const getArtist = (id) => api.get(`/artists/${id}`, { params: {} }).then(r => r.data)
 export const getRelatedArtists = (id) => api.get(`/artists/${id}/related-artists`).then(r => r.data.artists ?? [])
 
 // ── User resources ─────────────────────────────────────────────
