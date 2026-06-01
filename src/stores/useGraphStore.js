@@ -18,8 +18,32 @@ export const DUMMY_GENRES = [
   { id: 'g_unknown', name: '장르 미상',  color: '#6B6B6B' },
 ]
 
+const DUMMY_ARTISTS = [
+  { id: 'a0',  name: 'Aphex Twin',       gids: ['g0']       },
+  { id: 'a1',  name: 'Four Tet',         gids: ['g0', 'g5'] },
+  { id: 'a2',  name: 'Floating Points',  gids: ['g0', 'g1'] },
+  { id: 'a3',  name: 'Caribou',          gids: ['g5', 'g3'] },
+  { id: 'a4',  name: 'Miles Davis',      gids: ['g1']       },
+  { id: 'a5',  name: 'John Coltrane',    gids: ['g1']       },
+  { id: 'a6',  name: 'Herbie Hancock',   gids: ['g1', 'g4'] },
+  { id: 'a7',  name: 'Kendrick Lamar',   gids: ['g2']       },
+  { id: 'a8',  name: 'J Dilla',          gids: ['g2', 'g4'] },
+  { id: 'a9',  name: 'Radiohead',        gids: ['g3']       },
+  { id: 'a10', name: 'Arcade Fire',      gids: ['g3']       },
+  { id: 'a11', name: 'Frank Ocean',      gids: ['g4', 'g2'] },
+  { id: 'a12', name: 'Brian Eno',        gids: ['g5', 'g0'] },
+  { id: 'a13', name: 'Boards of Canada', gids: ['g5']       },
+]
+
 function buildInitialNodes() {
-  return []
+  return DUMMY_ARTISTS.map(a => ({
+    ...a,
+    type:             'artist',
+    added:            false,
+    isRecommendation: true,
+    imageUrl:         '',
+    previewUrl:       null,
+  }))
 }
 
 // ─── Simulation position cache (updated by GraphCanvas on sim end) ───────────
@@ -109,11 +133,22 @@ export const useGraphStore = create((set) => ({
   }),
 
   loadCanvas: (nodes, links, genres) => {
-    const merged = [
+    if (!nodes?.length) return  // 저장된 노드 없으면 더미 유지
+    const initialNodes = buildInitialNodes()
+    const mergedNodes = [
+      // 더미 노드 기반 — 저장된 데이터가 있으면 덮어씀 (added:true 복원)
+      ...initialNodes.map(dummy => {
+        const saved = nodes.find(n => n.id === dummy.id)
+        return saved ?? dummy
+      }),
+      // 더미에 없는 유저 추가 노드
+      ...nodes.filter(n => !initialNodes.find(d => d.id === n.id)),
+    ]
+    const mergedGenres = [
       ...DUMMY_GENRES,
       ...genres.filter(g => !DUMMY_GENRES.find(d => d.id === g.id)),
     ]
-    set({ nodes, links, genres: merged })
+    set({ nodes: mergedNodes, links, genres: mergedGenres })
   },
 
   addGenre: (name) => {

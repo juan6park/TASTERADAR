@@ -13,6 +13,7 @@ const HIDE_DELAY = 140
 function hex2rgb(h) {
   return { r: parseInt(h.slice(1,3),16), g: parseInt(h.slice(3,5),16), b: parseInt(h.slice(5,7),16) }
 }
+
 function rgba(hex, a) {
   const { r, g, b } = hex2rgb(hex)
   return `rgba(${r},${g},${b},${a})`
@@ -33,7 +34,7 @@ export default function GraphCanvas() {
 
   const {
     nodes: storeNodes, genres,
-    mode, setMode, setAdded,
+    mode, setMode, setAdded, removeNode,
     undo, redo,
   } = useGraphStore()
 
@@ -232,6 +233,7 @@ export default function GraphCanvas() {
   const storeNodeCount  = useGraphStore(s => s.nodes.length)
   const storeGenreCount = useGraphStore(s => s.genres.length)
   const storeLinks      = useGraphStore(s => s.links)
+  const storeNodeIds    = useGraphStore(s => s.nodes.map(n => n.id).join(','))
 
   // ── Init simulation (once on mount) ──────────────────────────────────────
   useEffect(() => {
@@ -272,9 +274,12 @@ export default function GraphCanvas() {
       simNodesRef.current.map(n => [n.id, { x: n.x, y: n.y, vx: n.vx ?? 0, vy: n.vy ?? 0 }])
     )
 
-    // 새 노드가 없으면 (added만 바뀐 경우) rebuild 없이 동기화만
+    // 새 노드가 없으면 (added만 바뀐 경우 또는 삭제) rebuild 없이 동기화만
     const novelIds = state.nodes.map(n => n.id).filter(id => !existingPosMap.has(id))
     if (novelIds.length === 0) {
+      // 삭제된 노드를 simNodesRef에서 제거 (Bug 4)
+      simNodesRef.current = simNodesRef.current.filter(sn => state.nodes.find(n => n.id === sn.id))
+      nodeMap.current = new Map(simNodesRef.current.map(n => [n.id, n]))
       simNodesRef.current.forEach(sn => {
         const found = state.nodes.find(n => n.id === sn.id)
         if (found) {
@@ -306,6 +311,7 @@ export default function GraphCanvas() {
     simRef.current.on('tick', () => { heatDirty.current = true; drawRef.current?.() })
     simRef.current.on('end',  () => { updateSimPositions(simNodesRef.current); setSimDone(true); drawRef.current?.() })
     simRef.current.alpha(0.3).restart()
+    console.log('[sim] alpha:', simRef.current.alpha())
     heatDirty.current = true
   }, [storeNodeCount, storeGenreCount]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -356,8 +362,10 @@ export default function GraphCanvas() {
       simRef.current.on('tick', () => { heatDirty.current = true; drawRef.current?.() })
       simRef.current.on('end',  () => { updateSimPositions(simNodesRef.current); setSimDone(true); drawRef.current?.() })
       simRef.current.alpha(0.3).restart()
+      console.log('[sim] alpha:', simRef.current.alpha())
     }
 
+    console.log('[addedCount sync] added 노드:', simNodesRef.current.filter(n => n.added).map(n => n.name))
     heatDirty.current = true
     drawRef.current?.()
   }, [addedCount]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -375,6 +383,16 @@ export default function GraphCanvas() {
     simRef.current.alpha(0.3).restart()
     heatDirty.current = true
   }, [storeLinks]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── 노드 삭제 감지 → sim에서 즉시 제거 (Bug 4 보조) ──────────────────────
+  useEffect(() => {
+    if (!simRef.current) return
+    const storeN = useGraphStore.getState().nodes
+    simNodesRef.current = simNodesRef.current.filter(n => storeN.find(s => s.id === n.id))
+    nodeMap.current = new Map(simNodesRef.current.map(n => [n.id, n]))
+    heatDirty.current = true
+    drawRef.current?.()
+  }, [storeNodeIds]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Undo/Redo — simNodes와 store 동기화 ──────────────────────────────────
   const syncSimNodes = useCallback(() => {
@@ -425,16 +443,27 @@ export default function GraphCanvas() {
   const handleRemoveById = useCallback((id) => {
     const node = simNodesRef.current.find(n => n.id === id)
     if (!node || !node.added) return
-    node.added = false
     heatDirty.current = true
-    setAdded(id, false)
-    draw()
-    setTooltip(t => {
-      if (!t) return null
-      if (modeRef.current === 'view') return null
-      return { ...t, node: { ...t.node, added: false } }
-    })
-  }, [setAdded, draw])
+
+    if (node.isRecommendation) {
+      // 추천 노드: added만 false (sim에 ghost로 유지)
+      node.added = false
+      setAdded(id, false)
+      draw()
+      setTooltip(t => t ? { ...t, node: { ...t.node, added: false } } : null)
+    } else {
+      // 일반 노드: sim + store에서 완전 삭제
+      simNodesRef.current = simNodesRef.current.filter(n => n.id !== id)
+      nodeMap.current.delete(id)
+      removeNode(id)
+      draw()
+      setTooltip(t => {
+        if (!t) return null
+        if (modeRef.current === 'view') return null
+        return { ...t, node: { ...t.node, added: false } }
+      })
+    }
+  }, [setAdded, removeNode, draw])
 
   // ── Mouse events ─────────────────────────────────────────────────────────
   const getCanvasCoords = (e) => {
@@ -550,7 +579,7 @@ export default function GraphCanvas() {
             onClick={handleClick}
           />
 
-          {/* 빈 상태 안내 */}
+          {/* 빈 상태 안내 — added:true 노드 없을 때만 표시 */}
           {addedCount === 0 && (
             <div style={{
               position: 'absolute', inset: 0, pointerEvents: 'none',

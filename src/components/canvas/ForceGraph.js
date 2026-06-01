@@ -1,9 +1,8 @@
-import { forceSimulation } from 'd3-force'
+import { forceSimulation, forceCenter, forceCollide } from 'd3-force'
 
-// Mirror the prototype's physics constants exactly
-const ARTIST_GENRE_STRENGTH = 0.012
+const ARTIST_GENRE_STRENGTH = 0.006   // 0.012 → 0.006 (클러스터 뭉침 완화)
 const TRACK_ARTIST_STRENGTH = 0.06
-const REPULSION = 900
+const REPULSION = 2000                 // 900 → 2000 (척력 강화)
 const LINK_STRENGTH = 0.008
 const TRACK_REPULSION = 300
 const BORDER_PADDING = 40
@@ -38,26 +37,26 @@ export function getGenreCenters(W, H, genres = []) {
 }
 
 export function initNodePositions(nodes, genreCenters, W, H) {
-  const jitter = () => (Math.random() - 0.5) * 40
-  nodes.forEach(n => {
+  nodes.forEach((n, i) => {
     if (n.x !== undefined) return
+
+    let cx = W / 2, cy = H / 2
     const gids = n.gids?.length ? n.gids : []
+
     if (n.type === 'artist' && gids.length) {
       let sx = 0, sy = 0
       gids.forEach(gid => {
         const c = genreCenters[gid] ?? { cx: W / 2, cy: H / 2 }
         sx += c.cx; sy += c.cy
       })
-      n.x = sx / gids.length + jitter()
-      n.y = sy / gids.length + jitter()
-    } else if (n.type === 'track') {
-      // Init near parent artist position (will be refined on tick)
-      n.x = W / 2 + jitter()
-      n.y = H / 2 + jitter()
-    } else {
-      n.x = W / 2 + jitter()
-      n.y = H / 2 + jitter()
+      cx = sx / gids.length
+      cy = sy / gids.length
     }
+
+    const angle  = (Math.PI * 2 * i) / nodes.length + Math.random() * 0.5
+    const spread = 60 + Math.random() * 80
+    n.x  = cx + Math.cos(angle) * spread
+    n.y  = cy + Math.sin(angle) * spread
     n.vx = 0; n.vy = 0
   })
 }
@@ -142,5 +141,7 @@ export function buildSimulation({ nodes, links, genreCenters, W, H }) {
     .force('track-attract', trackArtistForce)
     .force('links',         artistLinkForce)
     .force('repulsion',     repulsionForce)
+    .force('collide',       forceCollide(n => n.type === 'artist' ? 45 : 25).strength(0.8))
+    .force('center',        forceCenter(W / 2, H / 2).strength(0.03))
     .force('border',        borderForce)
 }

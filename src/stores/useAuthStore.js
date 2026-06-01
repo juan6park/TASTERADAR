@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { supabase } from '../services/supabase'
 import { setTokenProvider, refreshAccessToken } from '../services/spotify'
 import { useGraphStore } from './useGraphStore'
+import { loadRecommendations } from '../hooks/useRecommendations'
 
 export const useAuthStore = create((set, get) => ({
   user:                null,
@@ -27,6 +28,8 @@ export const useAuthStore = create((set, get) => ({
       // Spotify 토큰을 먼저 await — canvasLoaded 전에 토큰이 준비되어야 함
       await get().loadSpotifyTokenFromDb()
       await get().loadCanvasState()
+      // 추천 노드 비동기 로드 (캔버스 표시를 블로킹하지 않음)
+      if (get().spotifyToken) loadRecommendations().catch(() => {})
     }
     set({ canvasLoaded: true })
 

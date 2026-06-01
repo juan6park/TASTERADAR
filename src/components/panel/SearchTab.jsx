@@ -5,6 +5,7 @@ import { useAuthStore }  from '../../stores/useAuthStore'
 import { useAudioStore } from '../../stores/useAudioStore'
 import { searchSpotify } from '../../services/spotify'
 import { getArtistGenres } from '../../services/lastfm'
+import { loadRecommendations } from '../../hooks/useRecommendations'
 
 const TYPE_LABELS = { all: '전체', artist: '아티스트', track: '트랙' }
 
@@ -63,8 +64,13 @@ export default function SearchTab() {
     console.log('[Last.fm] artist genres:', artist.name, '→', genres)
     const gids = genres.length ? resolveGenreIds(genres) : ['g_unknown']
     addNode({ id: artist.id, type: 'artist', name: artist.name, gids, imageUrl: artist.imageUrl, previewUrl: null, added: true })
-    linkByGenre(artist.id, gids)
-  }, [addNode, linkByGenre])
+    // 같은 장르를 공유하는 added 아티스트와만 링크
+    const { nodes: cur } = useGraphStore.getState()
+    cur
+      .filter(n => n.type === 'artist' && n.added && n.id !== artist.id && n.gids?.some(g => gids.includes(g)))
+      .forEach(n => addLink(artist.id, n.id))
+    if (spotifyConnected) loadRecommendations().catch(() => {})
+  }, [addNode, addLink, spotifyConnected])
 
   const handleAddTrack = useCallback(async (track) => {
     const genres = await getArtistGenres(track.artistName)

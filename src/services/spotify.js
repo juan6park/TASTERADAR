@@ -168,8 +168,9 @@ export async function searchSpotify(query, type = 'all') {
 }
 
 // ── Single resources ───────────────────────────────────────────
-export const getArtist = (id) => api.get(`/artists/${id}`, { params: {} }).then(r => r.data)
-export const getRelatedArtists = (id) => api.get(`/artists/${id}/related-artists`).then(r => r.data.artists ?? [])
+export const getArtist          = (id) => api.get(`/artists/${id}`, { params: {} }).then(r => r.data)
+export const getRelatedArtists  = (id) => api.get(`/artists/${id}/related-artists`).then(r => r.data.artists ?? [])
+export const getArtistTopTracks = (id) => api.get(`/artists/${id}/top-tracks`, { params: { market: 'KR' } }).then(r => r.data.tracks ?? [])
 
 // ── User resources ─────────────────────────────────────────────
 export const getSpotifyUser    = ()   => api.get('/me').then(r => r.data)

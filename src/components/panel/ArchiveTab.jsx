@@ -15,7 +15,13 @@ export default function ArchiveTab() {
   const nodes      = useGraphStore(s => s.nodes)
   const genres     = useGraphStore(s => s.genres)
   const removeNode = useGraphStore(s => s.removeNode)
+  const setAdded   = useGraphStore(s => s.setAdded)
   const addedNodes = useMemo(() => nodes.filter(n => n.added), [nodes])
+
+  const handleRemove = (node) => {
+    if (node.isRecommendation) setAdded(node.id, false)
+    else removeNode(node.id)
+  }
 
   const { spotifyToken, spotifyUser } = useAuthStore()
   const { play, currentTrackId, isPlaying } = useAudioStore()
@@ -98,7 +104,7 @@ export default function ArchiveTab() {
             {sortedArtists.map(n => (
               <ArchiveRow
                 key={n.id} node={n} genres={genres}
-                onRemove={() => removeNode(n.id)}
+                onRemove={() => handleRemove(n)}
               />
             ))}
           </>
@@ -109,7 +115,7 @@ export default function ArchiveTab() {
             {sortedTracks.map(n => (
               <ArchiveRow
                 key={n.id} node={n} genres={genres}
-                onRemove={() => removeNode(n.id)}
+                onRemove={() => handleRemove(n)}
                 isPlaying={currentTrackId === n.id && isPlaying}
                 onPlay={() => play(n.id, n.previewUrl, n.name, n.artistName)}
               />
