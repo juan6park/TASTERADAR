@@ -73,19 +73,21 @@ export default function GraphCanvas() {
     }
     if (heatRef.current) ctx.drawImage(heatRef.current, 0, 0)
 
-    gs.forEach(g => {
-      const members = m === 'view'
-        ? sN.filter(n => n.type === 'artist' && n.added && n.gids.includes(g.id))
-        : sN.filter(n => n.type === 'artist' && n.gids.includes(g.id))
-      if (!members.length) return
-      let cx = 0, cy = 0
-      members.forEach(n => { cx += n.x; cy += n.y })
-      cx /= members.length; cy /= members.length
-      const minY = Math.min(...members.map(n => n.y))
+    // 장르 레이블 — 노드당 상위 1개 장르만, 중복 없이
+    const drawnGenreIds = new Set()
+    sN.forEach(n => {
+      if (n.type !== 'artist') return
+      if (m === 'view' && !n.added) return
+      if (!n.x || !n.y) return
+      const topGid = n.gids?.[0]
+      if (!topGid || drawnGenreIds.has(topGid)) return
+      drawnGenreIds.add(topGid)
+      const g = gs.find(g => g.id === topGid)
+      if (!g) return
       ctx.font = '500 9px sans-serif'
       ctx.fillStyle = rgba(g.color, 0.55)
       ctx.textAlign = 'center'
-      ctx.fillText(g.name.toUpperCase(), cx, minY - 18)
+      ctx.fillText(g.name.toUpperCase(), n.x, n.y - 18)
       ctx.textAlign = 'left'
     })
 

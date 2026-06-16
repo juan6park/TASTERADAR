@@ -32,8 +32,7 @@ export const useAuthStore = create((set, get) => ({
       await get().loadTutorialStatus()
       // 저장된 추천 노드가 없을 때만 로드 (새로고침 후 깜빡임 방지)
       const { nodes: canvasNodes } = useGraphStore.getState()
-      const hasRecs = canvasNodes.some(n => n.isRecommendation && !n.added)
-      if (get().spotifyToken && !hasRecs) loadRecommendations().catch(() => {})
+      loadRecommendations().catch(() => {})
     }
     set({ canvasLoaded: true })
 

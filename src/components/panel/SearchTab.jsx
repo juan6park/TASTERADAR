@@ -90,12 +90,9 @@ export default function SearchTab() {
       })
     }, 50)
 
-    if (spotifyConnected) {
-      console.log('[handleAddArtist] loadRecommendations 호출 시작')
-      loadRecommendations()
+    loadRecommendations()
         .then(() => console.log('[handleAddArtist] 추천 완료'))
         .catch(e => console.error('[handleAddArtist] 추천 실패:', e))
-    }
   }, [addNode, addLink, spotifyConnected])
 
   const handleAddTrack = useCallback(async (track) => {
