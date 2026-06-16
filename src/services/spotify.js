@@ -1,9 +1,41 @@
 import axios from 'axios'
 
-const CLIENT_ID    = import.meta.env.VITE_SPOTIFY_CLIENT_ID
-const REDIRECT_URI = import.meta.env.VITE_SPOTIFY_REDIRECT_URI
-const BASE         = 'https://api.spotify.com/v1'
-const ACCOUNTS     = 'https://accounts.spotify.com'
+const CLIENT_ID     = import.meta.env.VITE_SPOTIFY_CLIENT_ID
+const CLIENT_SECRET = import.meta.env.VITE_SPOTIFY_CLIENT_SECRET
+const REDIRECT_URI  = import.meta.env.VITE_SPOTIFY_REDIRECT_URI
+const BASE          = 'https://api.spotify.com/v1'
+const ACCOUNTS      = 'https://accounts.spotify.com'
+
+// ── Client Credentials (로그인 불필요 — 공개 데이터 전용) ────────
+let _ccToken  = null
+let _ccExpiry = 0
+
+async function getClientCredentialsToken() {
+  if (_ccToken && Date.now() < _ccExpiry - 60_000) return _ccToken
+  const res = await fetch(`${ACCOUNTS}/api/token`, {
+    method:  'POST',
+    headers: {
+      'Content-Type':  'application/x-www-form-urlencoded',
+      'Authorization': 'Basic ' + btoa(`${CLIENT_ID}:${CLIENT_SECRET}`),
+    },
+    body: 'grant_type=client_credentials',
+  })
+  const data = await res.json()
+  _ccToken  = data.access_token
+  _ccExpiry = Date.now() + data.expires_in * 1000
+  return _ccToken
+}
+
+async function ccGet(path, params = {}) {
+  const token = await getClientCredentialsToken()
+  const url = new URL(`${BASE}${path}`)
+  Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, String(v)))
+  const res = await fetch(url.toString(), {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  if (!res.ok) throw new Error(`Spotify ${res.status}: ${path}`)
+  return res.json()
+}
 
 // ── PKCE helpers ──────────────────────────────────────────────
 function toBase64Url(buffer) {
@@ -169,7 +201,7 @@ export async function searchSpotify(query, type = 'all') {
 
 // ── Single resources ───────────────────────────────────────────
 export const getArtist          = (id) => api.get(`/artists/${id}`, { params: {} }).then(r => r.data)
-export const getRelatedArtists  = (id) => api.get(`/artists/${id}/related-artists`).then(r => r.data.artists ?? [])
+export const getRelatedArtists  = (id) => ccGet(`/artists/${id}/related-artists`).then(d => d.artists ?? [])
 export const getArtistTopTracks = (id) => api.get(`/artists/${id}/top-tracks`, { params: { market: 'KR' } }).then(r => r.data.tracks ?? [])
 
 // ── User resources ─────────────────────────────────────────────

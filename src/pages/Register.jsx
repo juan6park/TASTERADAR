@@ -20,8 +20,13 @@ export default function Register() {
     if (password !== confirm)  return setError('비밀번호가 일치하지 않습니다.')
     setLoading(true)
     try {
-      await signUp(email, password, nickname)
-      setDone(true)
+      const data = await signUp(email, password, nickname)
+      // Supabase auto-confirm: session available immediately → go to tutorial
+      if (data.session) {
+        navigate('/tutorial')
+      } else {
+        setDone(true)
+      }
     } catch (err) {
       setError(err.message || '회원가입에 실패했습니다.')
     } finally {

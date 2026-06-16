@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useGraphStore, resolveGenreIds } from '../../stores/useGraphStore'
+import { useGraphStore, resolveGenreIds, shouldLinkByGenre } from '../../stores/useGraphStore'
 import { useAuthStore }  from '../../stores/useAuthStore'
 import { useAudioStore } from '../../stores/useAudioStore'
 import { searchSpotify } from '../../services/spotify'
@@ -20,8 +20,8 @@ export default function SearchTab() {
   const [error,   setError]   = useState(null)
 
   const debounceRef        = useRef(null)
-  const storeNodes         = useGraphStore(s => s.nodes)
-  const { addNode, addLink } = useGraphStore()
+  const storeNodes                    = useGraphStore(s => s.nodes)
+  const { addNode, addLink, setAdded } = useGraphStore()
 
   const runSearch = useCallback(async (q, t) => {
     if (!q.trim()) { setResults({ artists: [], tracks: [] }); return }
@@ -52,37 +52,68 @@ export default function SearchTab() {
   const isAdded = (id) => storeNodes.some(n => n.id === id && n.added)
 
   const linkByGenre = useCallback((id, gids) => {
-    const { nodes } = useGraphStore.getState()
+    const { nodes, genres: storeGenres } = useGraphStore.getState()
+    const src = nodes.find(n => n.id === id)
+    if (src?.type !== 'artist') return
     nodes.forEach(n => {
-      if (n.id === id || !n.added) return
-      if (gids.some(g => n.gids?.includes(g))) addLink(id, n.id)
+      if (n.id === id || !n.added || n.type !== 'artist') return
+      if (shouldLink(src, n, storeGenres)) addLink(id, n.id)
     })
   }, [addLink])
 
   const handleAddArtist = useCallback(async (artist) => {
     const genres = await getArtistGenres(artist.name)
-    console.log('[Last.fm] artist genres:', artist.name, '→', genres)
     const gids = genres.length ? resolveGenreIds(genres) : ['g_unknown']
+
+    console.log('=== handleAddArtist ===')
+    console.log('추가할 아티스트:', artist.name)
+    console.log('genres:', genres)
+    console.log('gids:', gids)
+
     addNode({ id: artist.id, type: 'artist', name: artist.name, gids, imageUrl: artist.imageUrl, previewUrl: null, added: true })
-    // 같은 장르를 공유하는 added 아티스트와만 링크
-    const { nodes: cur } = useGraphStore.getState()
-    cur
-      .filter(n => n.type === 'artist' && n.added && n.id !== artist.id && n.gids?.some(g => gids.includes(g)))
-      .forEach(n => addLink(artist.id, n.id))
-    if (spotifyConnected) loadRecommendations().catch(() => {})
+
+    setTimeout(() => {
+      const { nodes: cur, genres: storeGenres } = useGraphStore.getState()
+      const newNode = cur.find(n => n.id === artist.id)
+
+      console.log('newNode gids:', newNode?.gids)
+      console.log('storeGenres:', storeGenres.map(g => g.id + ':' + g.name))
+
+      const candidates = cur.filter(n => n.type === 'artist' && n.added && n.id !== artist.id)
+      console.log('링크 후보 아티스트:', candidates.map(n => n.name + ' ' + JSON.stringify(n.gids)))
+
+      if (!newNode) return
+      candidates.forEach(n => {
+        const result = shouldLinkByGenre(newNode, n)
+        console.log(`shouldLink(${artist.name}, ${n.name}):`, result, '| gids1:', newNode.gids, '| gids2:', n.gids)
+        if (result) addLink(artist.id, n.id)
+      })
+    }, 50)
+
+    if (spotifyConnected) {
+      console.log('[handleAddArtist] loadRecommendations 호출 시작')
+      loadRecommendations()
+        .then(() => console.log('[handleAddArtist] 추천 완료'))
+        .catch(e => console.error('[handleAddArtist] 추천 실패:', e))
+    }
   }, [addNode, addLink, spotifyConnected])
 
   const handleAddTrack = useCallback(async (track) => {
     const genres = await getArtistGenres(track.artistName)
     console.log('[Last.fm] track genres:', track.artistName, '→', genres)
     const gids = genres.length ? resolveGenreIds(genres) : ['g_unknown']
+
     const { nodes } = useGraphStore.getState()
-    if (!nodes.find(n => n.id === track.artistId)) {
-      addNode({ id: track.artistId, type: 'artist', name: track.artistName, gids, imageUrl: '', previewUrl: null, added: false })
+    const parentExists = nodes.find(n => n.id === track.artistId)
+
+    if (!parentExists) {
+      addNode({ id: track.artistId, type: 'artist', name: track.artistName, gids, imageUrl: '', previewUrl: null, added: true })
+    } else if (!parentExists.added) {
+      setAdded(track.artistId, true)
     }
+
     addNode({ id: track.id, type: 'track', name: track.name, artistId: track.artistId, artistName: track.artistName, gids, imageUrl: track.imageUrl, previewUrl: track.previewUrl, added: true })
-    linkByGenre(track.id, gids)
-  }, [addNode, linkByGenre])
+  }, [addNode, setAdded])
 
   const showArtists = type !== 'track'  && results.artists.length > 0
   const showTracks  = type !== 'artist' && results.tracks.length  > 0

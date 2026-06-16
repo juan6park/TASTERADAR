@@ -9,12 +9,12 @@ export const GENRE_COLORS = [
 
 // ─── Dummy data (prototype-identical) ────────────────────────────────────────
 export const DUMMY_GENRES = [
-  { id: 'g0',        name: 'Electronic', color: '#534AB7' },
-  { id: 'g1',        name: 'Jazz',       color: '#0F6E56' },
-  { id: 'g2',        name: 'Hip-hop',    color: '#993C1D' },
-  { id: 'g3',        name: 'Indie Rock', color: '#993556' },
-  { id: 'g4',        name: 'R&B / Soul', color: '#185FA5' },
-  { id: 'g5',        name: 'Ambient',    color: '#3B6D11' },
+  { id: 'g0',        name: 'electronic', color: '#534AB7' },
+  { id: 'g1',        name: 'jazz',       color: '#0F6E56' },
+  { id: 'g2',        name: 'hip-hop',    color: '#993C1D' },
+  { id: 'g3',        name: 'indie rock', color: '#993556' },
+  { id: 'g4',        name: 'rnb',        color: '#185FA5' },
+  { id: 'g5',        name: 'ambient',    color: '#3B6D11' },
   { id: 'g_unknown', name: '장르 미상',  color: '#6B6B6B' },
 ]
 
@@ -35,7 +35,7 @@ const DUMMY_ARTISTS = [
   { id: 'a13', name: 'Boards of Canada', gids: ['g5']       },
 ]
 
-function buildInitialNodes() {
+export function buildInitialNodes() {
   return DUMMY_ARTISTS.map(a => ({
     ...a,
     type:             'artist',
@@ -44,6 +44,22 @@ function buildInitialNodes() {
     imageUrl:         '',
     previewUrl:       null,
   }))
+}
+
+// ─── Immediate DB save (for destructive actions) ─────────────────────────────
+async function _saveNow() {
+  try {
+    const state = useGraphStore.getState()
+    const nodes = enrichNodesWithPositions(state.nodes)
+    const { useAuthStore } = await import('./useAuthStore')
+    const userId = useAuthStore.getState()?.user?.id
+    if (!userId) return
+    const { supabase } = await import('../services/supabase')
+    await supabase.from('canvas_state').upsert(
+      { user_id: userId, nodes, links: state.links, genres: state.genres },
+      { onConflict: 'user_id' }
+    )
+  } catch {}
 }
 
 // ─── Simulation position cache (updated by GraphCanvas on sim end) ───────────
@@ -79,6 +95,7 @@ export const useGraphStore = create((set) => ({
 
   setAdded: (id, value = true) => set((state) => {
     const past = [...state.history.past, snapshot(state)]
+    if (!value) setTimeout(_saveNow, 100)
     return {
       nodes: state.nodes.map(n => n.id === id ? { ...n, added: value } : n),
       history: { past, future: [] },
@@ -87,9 +104,11 @@ export const useGraphStore = create((set) => ({
 
   addNode: (node) => set((state) => {
     console.log('[GraphStore] addNode:', node.id, node.name, '| gids:', node.gids, '| added:', node.added)
-    const existing = state.nodes.find(n => n.id === node.id)
-    if (existing) {
-      if (existing.added) {
+
+    // 1. id로 먼저 찾기
+    const existingById = state.nodes.find(n => n.id === node.id)
+    if (existingById) {
+      if (existingById.added) {
         console.log('[GraphStore] addNode: 이미 추가됨 → 스킵')
         return state
       }
@@ -102,6 +121,41 @@ export const useGraphStore = create((set) => ({
         history: { past, future: [] },
       }
     }
+
+    // 2. 아티스트 이름으로 중복 체크 (더미 id → Spotify id 교체)
+    if (node.type === 'artist') {
+      const existingByName = state.nodes.find(
+        n => n.type === 'artist' &&
+             n.name.toLowerCase() === node.name.toLowerCase()
+      )
+      if (existingByName) {
+        console.log('[GraphStore] addNode: 이름 매칭 → 더미 교체', existingByName.id, '→', node.id)
+        const oldPos = _posCache.get(existingByName.id)
+        if (oldPos) { _posCache.set(node.id, oldPos); _posCache.delete(existingByName.id) }
+        const past = [...state.history.past, snapshot(state)]
+        return {
+          nodes: state.nodes.map(n =>
+            n.id === existingByName.id
+              ? {
+                  ...n,
+                  id:               node.id,
+                  gids:             node.gids?.length ? node.gids : n.gids,
+                  imageUrl:         node.imageUrl || n.imageUrl,
+                  added:            true,
+                  isRecommendation: false,
+                }
+              : n
+          ),
+          links: state.links.map(l => ({
+            source: l.source === existingByName.id ? node.id : l.source,
+            target: l.target === existingByName.id ? node.id : l.target,
+          })),
+          history: { past, future: [] },
+        }
+      }
+    }
+
+    // 3. 새 노드 추가
     const past = [...state.history.past, snapshot(state)]
     return {
       nodes: [...state.nodes, node],
@@ -111,6 +165,7 @@ export const useGraphStore = create((set) => ({
 
   removeNode: (id) => set((state) => {
     const past = [...state.history.past, snapshot(state)]
+    setTimeout(_saveNow, 100)
     return {
       nodes: state.nodes.filter(n => n.id !== id),
       links: state.links.filter(l => l.source !== id && l.target !== id),
@@ -136,13 +191,20 @@ export const useGraphStore = create((set) => ({
     if (!nodes?.length) return  // 저장된 노드 없으면 더미 유지
     const initialNodes = buildInitialNodes()
     const mergedNodes = [
-      // 더미 노드 기반 — 저장된 데이터가 있으면 덮어씀 (added:true 복원)
+      // 더미 노드: id → 이름 순으로 저장된 상태 복원
       ...initialNodes.map(dummy => {
-        const saved = nodes.find(n => n.id === dummy.id)
-        return saved ?? dummy
+        const savedById   = nodes.find(n => n.id === dummy.id)
+        if (savedById) return savedById
+        const savedByName = nodes.find(n => n.name?.toLowerCase() === dummy.name?.toLowerCase())
+        if (savedByName) return savedByName
+        return dummy
       }),
-      // 더미에 없는 유저 추가 노드
-      ...nodes.filter(n => !initialNodes.find(d => d.id === n.id)),
+      // 더미에 없는 노드 — added:true인 것만 복원 (추천 노드 포함)
+      ...nodes.filter(n => {
+        const byId   = initialNodes.find(d => d.id === n.id)
+        const byName = initialNodes.find(d => d.name?.toLowerCase() === n.name?.toLowerCase())
+        return !byId && !byName && n.added
+      }),
     ]
     const mergedGenres = [
       ...DUMMY_GENRES,
@@ -175,11 +237,29 @@ export const useGraphStore = create((set) => ({
   }),
 }))
 
-// ─── Standalone helper ────────────────────────────────────────────────────────
+// ─── Standalone helpers ───────────────────────────────────────────────────────
 export function resolveGenreIds(genreNames) {
-  const { addGenre } = useGraphStore.getState()
-  const gids = genreNames.slice(0, 3).map(name => addGenre(name))
-  console.log('[resolveGenreIds] input:', genreNames.slice(0, 3), '→ gids:', gids,
-    '| 현재 genres:', useGraphStore.getState().genres.map(g => `${g.id}:${g.name}`))
-  return gids
+  const { addGenre, genres } = useGraphStore.getState()
+  return genreNames.slice(0, 3).map(name => {
+    const normalized = name.toLowerCase().trim()
+    // 기존 장르에서 normalize 비교 후 있으면 재사용, 없으면 신규 추가
+    const existing = genres.find(g => g.name.toLowerCase().trim() === normalized)
+    if (existing) return existing.id
+    return addGenre(normalized)
+  })
+}
+
+const normalize = s => s.replace(/[\s\-\/]/g, '')
+
+export function shouldLinkByGenre(n1, n2) {
+  const { genres } = useGraphStore.getState()
+  if (!n1 || !n2) return false
+  if (n1.type !== 'artist' || n2.type !== 'artist') return false
+  const getNames = (gids) => (gids ?? [])
+    .slice(0, 2)
+    .map(gid => genres.find(g => g.id === gid)?.name?.toLowerCase().trim())
+    .filter(Boolean)
+  const norm1 = getNames(n1.gids).map(normalize)
+  const norm2 = getNames(n2.gids).map(normalize)
+  return norm1.some(n => norm2.includes(n))
 }

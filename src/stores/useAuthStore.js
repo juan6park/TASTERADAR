@@ -1,13 +1,14 @@
 import { create } from 'zustand'
 import { supabase } from '../services/supabase'
 import { setTokenProvider, refreshAccessToken } from '../services/spotify'
-import { useGraphStore } from './useGraphStore'
 import { loadRecommendations } from '../hooks/useRecommendations'
+import { useGraphStore, DUMMY_GENRES } from './useGraphStore'
 
 export const useAuthStore = create((set, get) => ({
   user:                null,
   loading:             true,
   canvasLoaded:        false,
+  tutorialCompleted:   null,   // null = 미로드, true/false = 로드됨
   spotifyToken:        null,
   spotifyRefreshToken: null,
   tokenExpiry:         null,
@@ -28,8 +29,11 @@ export const useAuthStore = create((set, get) => ({
       // Spotify 토큰을 먼저 await — canvasLoaded 전에 토큰이 준비되어야 함
       await get().loadSpotifyTokenFromDb()
       await get().loadCanvasState()
-      // 추천 노드 비동기 로드 (캔버스 표시를 블로킹하지 않음)
-      if (get().spotifyToken) loadRecommendations().catch(() => {})
+      await get().loadTutorialStatus()
+      // 저장된 추천 노드가 없을 때만 로드 (새로고침 후 깜빡임 방지)
+      const { nodes: canvasNodes } = useGraphStore.getState()
+      const hasRecs = canvasNodes.some(n => n.isRecommendation && !n.added)
+      if (get().spotifyToken && !hasRecs) loadRecommendations().catch(() => {})
     }
     set({ canvasLoaded: true })
 
@@ -59,7 +63,22 @@ export const useAuthStore = create((set, get) => ({
 
   signOut: async () => {
     await supabase.auth.signOut()
-    set({ user: null, spotifyToken: null, spotifyRefreshToken: null, tokenExpiry: null, spotifyUser: null })
+    // GraphStore 초기화 — 이전 유저 캔버스 제거
+    useGraphStore.setState({
+      nodes: buildInitialNodes(), // 더미 노드로 리셋
+      links: [],
+      genres: DUMMY_GENRES,
+      history: { past: [], future: [] },
+    })
+    set({ 
+      user: null, 
+      spotifyToken: null, 
+      spotifyRefreshToken: null, 
+      tokenExpiry: null, 
+      spotifyUser: null,
+      tutorialCompleted: null,
+      canvasLoaded: false,
+    })
   },
 
   // ── Spotify token management ──────────────────────────────────────────────
@@ -165,13 +184,16 @@ export const useAuthStore = create((set, get) => ({
 
   loadCanvasState: async () => {
     const { user } = get()
+    console.log('[loadCanvas] user.id:', user?.id)
     if (!user) return
     try {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('canvas_state')
         .select('nodes, links, genres')
         .eq('user_id', user.id)
         .maybeSingle()
+      console.log('[loadCanvas] error:', error?.message)
+      console.log('[loadCanvas] data 있음:', !!data?.nodes)
       if (data?.nodes) {
         const { loadCanvas } = useGraphStore.getState()
         const nodes = data.nodes.map(({ fx, fy, index, vx, vy, ...rest }) => ({ ...rest, vx: 0, vy: 0 }))
@@ -180,6 +202,27 @@ export const useAuthStore = create((set, get) => ({
     } catch (err) {
       console.warn('[loadCanvasState] 불러오기 실패:', err.message)
     }
+  },
+
+  loadTutorialStatus: async () => {
+    const { user } = get()
+    if (!user) return
+    const { data } = await supabase
+      .from('profiles')
+      .select('tutorial_completed')
+      .eq('id', user.id)
+      .maybeSingle()
+    set({ tutorialCompleted: data?.tutorial_completed ?? false })
+  },
+
+  completeTutorial: async () => {
+    const { user } = get()
+    if (user) {
+      await supabase.from('profiles')
+        .update({ tutorial_completed: true })
+        .eq('id', user.id)
+    }
+    set({ tutorialCompleted: true })
   },
 
   disconnectSpotify: async () => {

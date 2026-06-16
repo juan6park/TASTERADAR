@@ -23,7 +23,7 @@ export default function ArchiveTab() {
     else removeNode(node.id)
   }
 
-  const { spotifyToken, spotifyUser } = useAuthStore()
+  const { spotifyToken } = useAuthStore()
   const { play, currentTrackId, isPlaying } = useAudioStore()
 
   const [sort,      setSort]      = useState('name')   // 'name' | 'genre'
@@ -55,12 +55,22 @@ export default function ArchiveTab() {
     if (!tracks.length) return
     setExporting(true)
     try {
-      const uid = spotifyUser?.id ?? (await getSpotifyUser()).id
-      const pl  = await createPlaylist(uid, 'Taste Radar')
+      const { spotifyUser } = useAuthStore.getState()
+      console.log('[Export] spotifyUser:', spotifyUser)
+      console.log('[Export] spotifyUser.id:', spotifyUser?.id)
+
+      let userId = spotifyUser?.id
+      if (!userId) {
+        const me = await getSpotifyUser()
+        console.log('[Export] getSpotifyUser fallback → me.id:', me.id)
+        userId = me.id
+      }
+      const pl  = await createPlaylist(userId, 'Taste Radar')
       const uris = tracks.map(t => `spotify:track:${t.id}`)
       await addTracksToPlaylist(pl.id, uris)
       showToast('플레이리스트가 저장됐어요')
-    } catch {
+    } catch (err) {
+      console.error('[Export] 실패:', err?.response?.data ?? err)
       showToast('내보내기에 실패했어요', false)
     } finally {
       setExporting(false)

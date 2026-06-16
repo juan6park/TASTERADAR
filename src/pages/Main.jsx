@@ -1,21 +1,30 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore }  from '../stores/useAuthStore'
+import { useGraphStore } from '../stores/useGraphStore'
 import { useCanvasPersist } from '../hooks/useCanvasPersist'
 import GraphCanvas from '../components/canvas/GraphCanvas'
 import SidePanel   from '../components/panel/SidePanel'
 import AudioPlayer from '../components/ui/AudioPlayer'
+import SpotifyTopModal from '../components/ui/SpotifyTopModal'
 
 export default function Main() {
-  const { user, canvasLoaded, spotifyToken } = useAuthStore()
+  const { user, canvasLoaded, spotifyToken, tutorialCompleted } = useAuthStore()
   const navigate  = useNavigate()
   useCanvasPersist()
-  const [panelOpen, setPanelOpen] = useState(true)
+  const [panelOpen,          setPanelOpen]          = useState(true)
+  const [topModalDismissed,  setTopModalDismissed]  = useState(false)
   const spotifyConnected = !!spotifyToken
+  const addedCount = useGraphStore(s => s.nodes.filter(n => n.added).length)
+  const showTopModal = !topModalDismissed && canvasLoaded && addedCount === 0 && spotifyConnected
 
   useEffect(() => {
     if (!user) navigate('/login')
   }, [user, navigate])
+
+  useEffect(() => {
+    if (canvasLoaded && tutorialCompleted === false) navigate('/tutorial')
+  }, [canvasLoaded, tutorialCompleted, navigate])
 
   return (
     <div style={{
@@ -35,26 +44,9 @@ export default function Main() {
         borderBottom: '1px solid var(--color-border)',
         flexShrink: 0,
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ fontWeight: 600, fontSize: 14, color: 'var(--color-text-primary)', letterSpacing: '-0.2px' }}>
-            Taste Radar
-          </span>
-          <button
-            onClick={() => setPanelOpen(p => !p)}
-            style={{
-              background: 'transparent',
-              border: '1px solid var(--color-border-secondary)',
-              borderRadius: 5,
-              padding: '4px 12px',
-              fontSize: 11,
-              color: 'var(--color-text-secondary)',
-              cursor: 'pointer',
-              fontFamily: 'inherit',
-            }}
-          >
-            {panelOpen ? '← 닫기' : '검색'}
-          </button>
-        </div>
+        <span style={{ fontWeight: 600, fontSize: 14, color: 'var(--color-text-primary)', letterSpacing: '-0.2px' }}>
+          Taste Radar
+        </span>
         <button
           onClick={() => navigate('/profile')}
           style={{
@@ -107,7 +99,25 @@ export default function Main() {
           <SidePanel />
         </div>
 
-        <div style={{ flex: 1, overflow: 'hidden' }}>
+        <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
+          {/* 패널 토글 핸들 — 캔버스 좌측 엣지 */}
+          <button
+            onClick={() => setPanelOpen(p => !p)}
+            title={panelOpen ? '패널 닫기' : '패널 열기'}
+            style={{
+              position: 'absolute', left: 0, top: '50%', transform: 'translateY(-50%)',
+              zIndex: 5, width: 14, height: 40, padding: 0,
+              background: 'var(--color-surface)',
+              border: '1px solid var(--color-border)',
+              borderLeft: 'none',
+              borderRadius: '0 4px 4px 0',
+              cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 10, color: 'var(--color-text-tertiary)', fontFamily: 'inherit',
+            }}
+          >
+            {panelOpen ? '‹' : '›'}
+          </button>
           {canvasLoaded
             ? <GraphCanvas />
             : <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
@@ -119,6 +129,11 @@ export default function Main() {
 
       {/* 오디오 플레이어 (재생 중일 때만 표시) */}
       <AudioPlayer />
+
+      {/* Spotify Top 데이터 초기 캔버스 모달 */}
+      {showTopModal && (
+        <SpotifyTopModal onClose={() => setTopModalDismissed(true)} />
+      )}
     </div>
   )
 }

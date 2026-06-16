@@ -1,69 +1,67 @@
 import { useGraphStore, resolveGenreIds } from '../stores/useGraphStore'
-import { getRelatedArtists, getArtistTopTracks } from '../services/spotify'
-import { getArtistGenres }   from '../services/lastfm'
+import { searchSpotify } from '../services/spotify'
+import { getArtistGenres } from '../services/lastfm'
 
 export async function loadRecommendations() {
-  const { nodes } = useGraphStore.getState()
-  const addedArtists = nodes.filter(n => n.type === 'artist' && n.added)
-
-  // added 아티스트 없으면 더미 유지, 추천 스킵
-  if (!addedArtists.length) return
-
-  // ── 아티스트 추천 (최대 5개) ────────────────────────────────────
-  const relatedMap = new Map()
-  await Promise.all(
-    addedArtists.slice(0, 5).map(async ar => {
-      try {
-        const related = await getRelatedArtists(ar.id)
-        const { nodes: cur } = useGraphStore.getState()
-        related.forEach(r => {
-          if (!relatedMap.has(r.id) && !cur.find(n => n.id === r.id)) {
-            relatedMap.set(r.id, r)
-          }
-        })
-      } catch {}
-    })
+  const { nodes, genres } = useGraphStore.getState()
+  const addedArtists = nodes.filter(
+    n => n.type === 'artist' && n.added && !n.id.match(/^a\d+$/)
   )
 
-  const recArtistData = [...relatedMap.values()].slice(0, 5)
+  console.log('[추천] added 아티스트 (더미 제외):', addedArtists.map(n => `${n.name}(${n.id})`))
 
-  // ── 트랙 추천 (최대 4개) ────────────────────────────────────────
-  const recTrackBuffer = []
+  if (!addedArtists.length) {
+    console.log('[추천] added 아티스트 없음 → 스킵')
+    return
+  }
+
+  const recMap = new Map()
   await Promise.all(
     addedArtists.slice(0, 3).map(async ar => {
       try {
-        const tracks = await getArtistTopTracks(ar.id)
+        const genreName = genres.find(g => g.id === ar.gids?.[0])?.name
+        if (!genreName) {
+          console.log('[추천] 장르 없음 → 스킵:', ar.name)
+          return
+        }
+        console.log('[추천] 장르 검색:', ar.name, '→', genreName)
+        const { artists } = await searchSpotify(genreName, 'artist')
+        console.log('[추천] 검색 결과:', genreName, '→', artists.length, '개')
         const { nodes: cur } = useGraphStore.getState()
-        tracks.slice(0, 2).forEach(t => {
-          if (!recTrackBuffer.find(r => r.id === t.id) &&
-              !cur.find(n => n.id === t.id)) {
-            recTrackBuffer.push({ track: t, parentAr: ar })
+        artists.forEach(a => {
+          if (!recMap.has(a.id) && !cur.find(n => n.id === a.id) && a.id !== ar.id) {
+            recMap.set(a.id, a)
           }
         })
-      } catch {}
+      } catch (e) {
+        console.error('[추천] 검색 실패:', ar.name, e.message)
+      }
     })
   )
-  const recTrackData = recTrackBuffer.slice(0, 4)
 
-  if (!recArtistData.length && !recTrackData.length) return
+  console.log('[추천] recMap 크기:', recMap.size)
+  const recArtistData = [...recMap.values()].slice(0, 5)
+  console.log('[추천] 아티스트 후보:', recArtistData.map(r => r.name))
+
+  if (!recArtistData.length) {
+    console.log('[추천] 후보 없음 → 종료')
+    return
+  }
 
   const { nodes: currentNodes, links: currentLinks } = useGraphStore.getState()
-  const nonRecommendation = currentNodes.filter(n => !n.isRecommendation)
-  const oldRecIds = new Set(
-    currentNodes.filter(n => n.isRecommendation).map(n => n.id)
-  )
+  const nonRec    = currentNodes.filter(n => !n.isRecommendation)
+  const oldRecIds = new Set(currentNodes.filter(n => n.isRecommendation).map(n => n.id))
 
-  // 아티스트 추천 노드 생성
-  const newArtistRecs = await Promise.all(
+  const newRecs = await Promise.all(
     recArtistData.map(async r => {
-      const genres = await getArtistGenres(r.name)
-      const gids = genres.length ? resolveGenreIds(genres) : ['g_unknown']
+      const artistGenres = await getArtistGenres(r.name)
+      const gids = artistGenres.length ? resolveGenreIds(artistGenres) : ['g_unknown']
       return {
         id:               r.id,
         type:             'artist',
         name:             r.name,
         gids,
-        imageUrl:         r.images?.[0]?.url ?? '',
+        imageUrl:         r.imageUrl ?? r.images?.[0]?.url ?? '',
         previewUrl:       null,
         added:            false,
         isRecommendation: true,
@@ -71,22 +69,10 @@ export async function loadRecommendations() {
     })
   )
 
-  // 트랙 추천 노드 생성 (부모 아티스트 gids 상속)
-  const newTrackRecs = recTrackData.map(({ track: t, parentAr }) => ({
-    id:               t.id,
-    type:             'track',
-    name:             t.name,
-    artistId:         t.artists[0]?.id ?? '',
-    artistName:       t.artists[0]?.name ?? '',
-    gids:             parentAr.gids,
-    imageUrl:         t.album?.images?.[0]?.url ?? '',
-    previewUrl:       t.preview_url ?? null,
-    added:            false,
-    isRecommendation: true,
-  }))
-
+  console.log('[추천] setState: 아티스트', newRecs.length, '개')
   useGraphStore.setState({
-    nodes: [...nonRecommendation, ...newArtistRecs, ...newTrackRecs],
+    nodes: [...nonRec, ...newRecs],
     links: currentLinks.filter(l => !oldRecIds.has(l.source) && !oldRecIds.has(l.target)),
   })
+  console.log('[추천] 완료')
 }

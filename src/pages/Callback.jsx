@@ -21,6 +21,8 @@ export default function Callback() {
         const { data: me } = await axios.get('https://api.spotify.com/v1/me', {
           headers: { Authorization: `Bearer ${access_token}` },
         })
+        console.log('[Callback] me.id:', me.id)
+        console.log('[Callback] me.display_name:', me.display_name)
         await saveSpotifyTokensToDb(access_token, refresh_token, expires_in, {
           id:           me.id,
           display_name: me.display_name,

@@ -25,7 +25,7 @@ export function useCanvasPersist() {
         } catch (err) {
           console.warn('[useCanvasPersist] 저장 실패:', err.message)
         }
-      }, 2000)
+      }, 500)
     })
 
     return () => {

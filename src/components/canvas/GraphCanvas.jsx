@@ -94,6 +94,9 @@ export default function GraphCanvas() {
       const tid = typeof target === 'object' ? target.id : target
       const n1 = getNode(sid), n2 = getNode(tid)
       if (!n1 || !n2 || n1.x == null || n2.x == null) return
+      // 아티스트-아티스트 간선만 여기서 그림
+      // 트랙-부모 연결은 아래 별도 블록에서 처리
+      if (n1.type !== 'artist' || n2.type !== 'artist') return
       if (m === 'view' && (!n1.added || !n2.added)) return
       const both = n1.added && n2.added
       const gc = getGenre(n1.gids?.[0]) ?? { color: '#888888' }
@@ -104,47 +107,45 @@ export default function GraphCanvas() {
       ctx.stroke(); ctx.setLineDash([])
     })
 
-    sN.filter(n => n.type === 'track').forEach(t => {
-      const parent = getNode(t.artistId)
-      if (!parent || t.x == null || parent.x == null) return
-      if (m === 'view' && (!parent.added || !t.added)) return
-      const gc  = getGenre(t.gids?.[0]) ?? { color: '#888888' }
-      const vis = parent.added && t.added
-      ctx.beginPath(); ctx.moveTo(parent.x, parent.y); ctx.lineTo(t.x, t.y)
-      ctx.strokeStyle = rgba(gc.color, vis ? 0.28 : 0.1)
-      ctx.lineWidth   = vis ? 0.8 : 0.4
-      ctx.setLineDash(vis ? [] : [2, 3])
-      ctx.stroke(); ctx.setLineDash([])
-    })
-
     const visTracks = m === 'view'
-      ? sN.filter(n => n.type === 'track' && getNode(n.artistId)?.added && n.added)
+      ? sN.filter(n => n.type === 'track' && n.added)
       : sN.filter(n => n.type === 'track')
 
     visTracks.forEach(t => {
       if (t.x == null) return
-      const parent = getNode(t.artistId)
-      const gc = getGenre(t.gids?.[0]) ?? { color: '#9b9b9b' }
-      const isHov = hovId.current === t.id
-      const vis   = parent?.added && t.added
-      const r     = vis ? 3.5 : 2.5
+      const parent  = getNode(t.artistId)
+      const gc      = getGenre(t.gids?.[0]) ?? { color: '#9b9b9b' }
+      const isHov   = hovId.current === t.id
+      const nodeVis = t.added                    // 노드 선명도: 트랙 자체 added 여부
+      const linkVis = t.added && parent?.added   // 간선 표시: 트랙 + 부모 둘 다 added
+      const r       = nodeVis ? 3.5 : 2.5
 
       if (isHov) {
         ctx.beginPath(); ctx.arc(t.x, t.y, r + 4, 0, Math.PI * 2)
         ctx.fillStyle = rgba(gc.color, 0.18); ctx.fill()
       }
       ctx.beginPath(); ctx.arc(t.x, t.y, r, 0, Math.PI * 2)
-      ctx.fillStyle = rgba(gc.color, vis ? 0.82 : 0.28); ctx.fill()
-      if (vis) {
+      ctx.fillStyle = rgba(gc.color, nodeVis ? 0.82 : 0.28); ctx.fill()
+      if (nodeVis) {
         ctx.strokeStyle = rgba(gc.color, 0.4); ctx.lineWidth = 1; ctx.stroke()
       } else if (m === 'add') {
         ctx.beginPath(); ctx.arc(t.x, t.y, r + 3, 0, Math.PI * 2)
         ctx.strokeStyle = rgba(gc.color, 0.16); ctx.lineWidth = 0.6; ctx.stroke()
       }
-      if (isHov || vis) {
-        ctx.font      = `${vis ? '500' : '400'} ${vis ? 10 : 9}px sans-serif`
-        ctx.fillStyle = vis ? TEXT_COL : MUTED_COL
+      if (isHov || nodeVis) {
+        ctx.font      = `${nodeVis ? '500' : '400'} ${nodeVis ? 10 : 9}px sans-serif`
+        ctx.fillStyle = nodeVis ? TEXT_COL : MUTED_COL
         ctx.fillText(t.name, t.x + r + 4, t.y + 4)
+      }
+
+      if (parent && parent.x != null && linkVis) {
+        ctx.beginPath()
+        ctx.moveTo(parent.x, parent.y)
+        ctx.lineTo(t.x, t.y)
+        ctx.strokeStyle = rgba(gc.color, 0.28)
+        ctx.lineWidth = 0.8
+        ctx.setLineDash([])
+        ctx.stroke()
       }
     })
 
@@ -219,7 +220,7 @@ export default function GraphCanvas() {
       if (dx*dx + dy*dy < 16*16) return { type: 'artist', node: ar }
     }
     const visT = m === 'view'
-      ? sN.filter(n => n.type === 'track' && nodeMap.current.get(n.artistId)?.added && n.added)
+      ? sN.filter(n => n.type === 'track' && n.added)
       : sN.filter(n => n.type === 'track')
     for (const t of visT) {
       if (t.x == null) continue
@@ -417,6 +418,21 @@ export default function GraphCanvas() {
     syncSimNodes()
   }, [canRedo, redo, syncSimNodes])
 
+  const handleSnapshot = useCallback(() => {
+    const cv = canvasRef.current
+    if (!cv) return
+    const tmp = document.createElement('canvas')
+    tmp.width = cv.width; tmp.height = cv.height
+    const ctx = tmp.getContext('2d')
+    ctx.fillStyle = '#ffffff'
+    ctx.fillRect(0, 0, tmp.width, tmp.height)
+    ctx.drawImage(cv, 0, 0)
+    const link = document.createElement('a')
+    link.download = `taste-radar-${new Date().toISOString().slice(0, 10)}.png`
+    link.href = tmp.toDataURL('image/png')
+    link.click()
+  }, [])
+
   // Ctrl+Z / Ctrl+Y (Ctrl+Shift+Z)
   useEffect(() => {
     const onKey = (e) => {
@@ -553,6 +569,21 @@ export default function GraphCanvas() {
         {/* Undo / Redo */}
         <UndoRedoBtn onClick={handleUndo} disabled={!canUndo} title="실행 취소 (Ctrl+Z)">↩</UndoRedoBtn>
         <UndoRedoBtn onClick={handleRedo} disabled={!canRedo} title="다시 실행 (Ctrl+Y)">↪</UndoRedoBtn>
+
+        <div style={{ width: 1, height: 14, background: 'var(--color-border)', margin: '0 2px' }} />
+
+        <button
+          onClick={handleSnapshot}
+          title="캔버스를 PNG로 저장"
+          style={{
+            padding: '4px 10px', borderRadius: 4, fontSize: 10,
+            background: 'transparent', border: '1px solid var(--color-border-secondary)',
+            color: 'var(--color-text-secondary)', cursor: 'pointer',
+            fontFamily: 'inherit', letterSpacing: '0.01em',
+          }}
+        >
+          스냅샷
+        </button>
 
         {!simDone && (
           <span style={{ fontSize: 10, color: 'var(--color-text-tertiary)', marginLeft: 6, letterSpacing: '0.02em' }}>
