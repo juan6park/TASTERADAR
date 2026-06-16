@@ -1,33 +1,42 @@
 const LASTFM_KEY = import.meta.env.VITE_LASTFM_API_KEY
 const BASE = 'https://ws.audioscrobbler.com/2.0'
 
-const ALIAS_MAP = {
-  'kpop': 'k-pop', 'k pop': 'k-pop', 'korean pop': 'k-pop', 'korean music': 'k-pop',
-  'hiphop': 'hip-hop', 'hip hop': 'hip-hop', 'rap': 'hip-hop',
-  'rnb': 'r&b', 'r and b': 'r&b', 'rhythm and blues': 'r&b',
-  'electronic music': 'electronic', 'electronica': 'electronic',
-  'indie': 'indie rock', 'alternative': 'alternative rock',
-}
+const BLACKLIST = [
+  'seen live', 'favorites', 'favourite',
+  'american', 'british', 'korean', 'japanese',
+  'canadian', 'australian', 'swedish',
+  'male vocalists', 'female vocalists',
+  'singer-songwriter', 'bts', 'kpop', 'k pop',
+  'pop', 'rap', 'rnb', 'r&b',
+]
 
 export async function getArtistGenres(artistName) {
   try {
     const res = await fetch(
       `${BASE}/?method=artist.getinfo` +
       `&artist=${encodeURIComponent(artistName)}` +
-      `&api_key=${LASTFM_KEY}` +
-      `&format=json`
+      `&api_key=${LASTFM_KEY}&format=json`
     )
     const data = await res.json()
     const tags = data.artist?.tags?.tag ?? []
+
     const artistLower = artistName.toLowerCase()
 
     const filtered = tags
       .map(t => t.name.toLowerCase().trim())
-      .filter(t => t !== artistLower)           // 아티스트명 제거
-      .filter(t => t.length > 2)               // 2글자 이하 제거
-      .map(t => ALIAS_MAP[t] ?? t)             // 유사 태그 통합
+      .filter(t => t !== artistLower)
+      .filter(t => t.length > 2)
+      .filter(t => !BLACKLIST.includes(t))
+      .map(t => {
+        if (['kpop', 'k pop', 'korean pop', 'korean music'].includes(t)) return 'k-pop'
+        if (['hiphop', 'hip hop', 'rap'].includes(t)) return 'hip-hop'
+        if (['rnb', 'r and b', 'rhythm and blues'].includes(t)) return 'r&b'
+        if (['electronica', 'electronic music'].includes(t)) return 'electronic'
+        if (['indie'].includes(t)) return 'indie rock'
+        return t
+      })
 
-    return [...new Set(filtered)].slice(0, 3)  // 중복 제거 후 상위 3개
+    return [...new Set(filtered)].slice(0, 3)
   } catch {
     return []
   }

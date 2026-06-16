@@ -1,5 +1,6 @@
 import { useGraphStore, resolveGenreIds } from '../stores/useGraphStore'
 import { getArtistGenres } from '../services/lastfm'
+import { searchSpotify } from '../services/spotify'
 
 const LASTFM_KEY = import.meta.env.VITE_LASTFM_API_KEY
 const LASTFM_BASE = 'https://ws.audioscrobbler.com/2.0'
@@ -34,7 +35,6 @@ export async function loadRecommendations() {
 
   if (!addedArtists.length) return
 
-  // 추가된 아티스트들의 상위 장르 수집
   const tagSet = new Set()
   addedArtists.forEach(ar => {
     ar.gids?.slice(0, 2).forEach(gid => {
@@ -59,7 +59,6 @@ export async function loadRecommendations() {
           getTagTopTracks(tag),
         ])
 
-        // 랜덤 셔플 후 추출
         shuffle(artists).forEach(a => {
           if (recArtistMap.size >= 5) return
           if (!a.name) return
@@ -90,12 +89,13 @@ export async function loadRecommendations() {
   const { nodes: currentNodes, links: currentLinks } =
     useGraphStore.getState()
 
-  const nonRec = currentNodes.filter(n => !n.isRecommendation)
+  const nonRec = currentNodes.filter(n => 
+    !n.isRecommendation || n.added
+  )
   const oldRecIds = new Set(
     currentNodes.filter(n => n.isRecommendation).map(n => n.id)
   )
 
-  // 아티스트 추천 노드
   const newArtistRecs = await Promise.all(
     [...recArtistMap.values()].map(async a => {
       const g = await getArtistGenres(a.name)
@@ -113,26 +113,53 @@ export async function loadRecommendations() {
     })
   )
 
-  // 트랙 추천 노드
-  const newTrackRecs = [...recTrackMap.values()].map(
-    ({ track: t, tag }) => {
+  const newTrackRecs = (await Promise.all(
+    [...recTrackMap.values()].map(async ({ track: t, tag }) => {
       const parentGid = genres.find(
         g => g.name.toLowerCase() === tag.toLowerCase()
       )?.id ?? 'g_unknown'
-      return {
-        id:               `rec_track_${t.name.replace(/\s/g, '_')}`,
-        type:             'track',
-        name:             t.name,
-        artistId:         `rec_artist_${t.artist?.name?.replace(/\s/g, '_')}`,
-        artistName:       t.artist?.name ?? '',
-        gids:             [parentGid],
-        imageUrl:         t.image?.find(i => i.size === 'large')?.['#text'] ?? '',
-        previewUrl:       null,
-        added:            false,
-        isRecommendation: true,
+
+      const artistName = t.artist?.name?.trim()
+
+      // 아티스트명 있으면 그냥 Last.fm 데이터로
+      if (artistName) {
+        return {
+          id:               `rec_track_${t.name.replace(/\s/g, '_')}`,
+          type:             'track',
+          name:             t.name,
+          artistId:         `rec_artist_${artistName.replace(/\s/g, '_')}`,
+          artistName,
+          gids:             [parentGid],
+          imageUrl:         t.image?.find(i => i.size === 'large')?.['#text'] ?? '',
+          previewUrl:       null,
+          added:            false,
+          isRecommendation: true,
+        }
       }
-    }
-  )
+
+      // 아티스트명 없을 때만 Spotify 검색
+      try {
+        const { tracks: spotifyTracks } = await searchSpotify(t.name, 'track')
+        const matched = spotifyTracks?.[0]
+        if (matched) {
+          return {
+            id:               matched.id,
+            type:             'track',
+            name:             matched.name,
+            artistId:         matched.artistId,
+            artistName:       matched.artistName,
+            gids:             [parentGid],
+            imageUrl:         matched.imageUrl ?? '',
+            previewUrl:       matched.previewUrl ?? null,
+            added:            false,
+            isRecommendation: true,
+          }
+        }
+      } catch {}
+
+      return null
+    })
+  )).filter(Boolean)
 
   useGraphStore.setState({
     nodes: [...nonRec, ...newArtistRecs, ...newTrackRecs],

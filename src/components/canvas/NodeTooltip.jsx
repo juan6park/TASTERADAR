@@ -19,7 +19,9 @@ export default function NodeTooltip({
 
   const getGenre  = (gid) => genres.find(g => g.id === gid)
   const isArtist  = nodeType === 'artist'
-  const typeLabel = isArtist ? '아티스트' : `트랙 · ${node.parentName ?? ''}`
+  const typeLabel = isArtist 
+    ? '아티스트' 
+    : `트랙 · ${node.artistName || node.parentName || ''}`
 
   const showAdd    = mode === 'add' && !node.added
   const showRemove = node.added && (mode === 'add' || mode === 'view')

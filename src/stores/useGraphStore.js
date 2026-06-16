@@ -188,24 +188,30 @@ export const useGraphStore = create((set) => ({
   }),
 
   loadCanvas: (nodes, links, genres) => {
-    if (!nodes?.length) return  // 저장된 노드 없으면 더미 유지
+    if (!nodes?.length) return
     const initialNodes = buildInitialNodes()
+
     const mergedNodes = [
-      // 더미 노드: id → 이름 순으로 저장된 상태 복원
       ...initialNodes.map(dummy => {
-        const savedById   = nodes.find(n => n.id === dummy.id)
+        const savedById = nodes.find(n => n.id === dummy.id)
         if (savedById) return savedById
-        const savedByName = nodes.find(n => n.name?.toLowerCase() === dummy.name?.toLowerCase())
+        const savedByName = nodes.find(
+          n => n.name?.toLowerCase() === dummy.name?.toLowerCase()
+        )
         if (savedByName) return savedByName
         return dummy
       }),
-      // 더미에 없는 노드 — added:true인 것만 복원 (추천 노드 포함)
+      // 더미에 없는 노드 — added:true인 것만 복원
+      // (추천 노드 added:true 포함)
       ...nodes.filter(n => {
-        const byId   = initialNodes.find(d => d.id === n.id)
-        const byName = initialNodes.find(d => d.name?.toLowerCase() === n.name?.toLowerCase())
-        return !byId && !byName && n.added
+        const matchById = initialNodes.find(d => d.id === n.id)
+        const matchByName = initialNodes.find(
+          d => d.name?.toLowerCase() === n.name?.toLowerCase()
+        )
+        return !matchById && !matchByName && n.added
       }),
     ]
+
     const mergedGenres = [
       ...DUMMY_GENRES,
       ...genres.filter(g => !DUMMY_GENRES.find(d => d.id === g.id)),
