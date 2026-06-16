@@ -2,20 +2,33 @@ import { create } from 'zustand'
 
 // ─── Genre color palette ──────────────────────────────────────────────────────
 export const GENRE_COLORS = [
-  '#534AB7', '#0F6E56', '#993C1D', '#993556', '#185FA5', '#3B6D11',
-  '#7B4312', '#1A6B7C', '#5E2D79', '#1C5E7E', '#8B4513', '#2E6B4F',
-  '#6B3A2E', '#1E5A6B', '#7A3B5F', '#3B6B2E',
+  '#0A3323', // Dark green
+  '#839958', // Moss green
+  '#D3968C', // Rosy brown
+  '#105666', // Midnight green
+  '#C4B89A', // Warm beige
+  '#1E5C4A', // Mid green
+  '#8B5E6A', // Dusty rose
+  '#2A7A6B', // Teal green
+  '#B07A6E', // Muted terracotta
+  '#4A7A5A', // Sage green
+  '#D4A8A0', // Soft pink
+  '#0D4A3A', // Deep forest
+  '#967A5E', // Warm taupe
+  '#155C6E', // Deep teal
+  '#C98A7A', // Salmon
+  '#3D6B4F', // Fern green
 ]
 
 // ─── Dummy data (prototype-identical) ────────────────────────────────────────
 export const DUMMY_GENRES = [
-  { id: 'g0',        name: 'electronic', color: '#534AB7' },
-  { id: 'g1',        name: 'jazz',       color: '#0F6E56' },
-  { id: 'g2',        name: 'hip-hop',    color: '#993C1D' },
-  { id: 'g3',        name: 'indie rock', color: '#993556' },
-  { id: 'g4',        name: 'rnb',        color: '#185FA5' },
-  { id: 'g5',        name: 'ambient',    color: '#3B6D11' },
-  { id: 'g_unknown', name: '장르 미상',  color: '#6B6B6B' },
+  { id: 'g0',        name: 'electronic', color: '#105666' }, // Midnight green
+  { id: 'g1',        name: 'jazz',       color: '#0A3323' }, // Dark green
+  { id: 'g2',        name: 'hip-hop',    color: '#D3968C' }, // Rosy brown
+  { id: 'g3',        name: 'indie rock', color: '#8B5E6A' }, // Dusty rose
+  { id: 'g4',        name: 'rnb',        color: '#839958' }, // Moss green
+  { id: 'g5',        name: 'ambient',    color: '#2A7A6B' }, // Teal green
+  { id: 'g_unknown', name: '장르 미상',  color: '#C4B89A' }, // Warm beige
 ]
 
 const DUMMY_ARTISTS = [
@@ -232,6 +245,10 @@ export const useGraphStore = create((set) => ({
     useGraphStore.setState({ genres: [...state.genres, { id: gid, name, color }] })
     return gid
   },
+
+  setRating: (id, rating, review) => set((state) => ({
+    nodes: state.nodes.map(n => n.id === id ? { ...n, rating, review } : n),
+  })),
 
   addLink: (source, target) => set((state) => {
     const exists = state.links.some(

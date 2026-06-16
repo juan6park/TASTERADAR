@@ -1,10 +1,12 @@
 import { useState } from 'react'
-import SearchTab  from './SearchTab'
-import ArchiveTab from './ArchiveTab'
+import SearchTab   from './SearchTab'
+import ArchiveTab  from './ArchiveTab'
+import AnalysisTab from './AnalysisTab'
 
 const TABS = [
-  { id: 'search',  label: '검색'     },
-  { id: 'archive', label: '아카이브' },
+  { id: 'search',   label: '검색'     },
+  { id: 'archive',  label: '아카이브' },
+  { id: 'analysis', label: '분석'     },
 ]
 
 export default function SidePanel() {
@@ -50,6 +52,9 @@ export default function SidePanel() {
         </div>
         <div style={{ flex: 1, display: active === 'archive' ? 'flex' : 'none', flexDirection: 'column', overflow: 'hidden' }}>
           <ArchiveTab />
+        </div>
+        <div style={{ flex: 1, display: active === 'analysis' ? 'flex' : 'none', flexDirection: 'column', overflow: 'hidden' }}>
+          <AnalysisTab />
         </div>
       </div>
     </div>

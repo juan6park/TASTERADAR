@@ -1,12 +1,12 @@
 import { forceSimulation, forceCenter, forceCollide } from 'd3-force'
 
-const ARTIST_GENRE_STRENGTH = 0.006   // 0.012 → 0.006 (클러스터 뭉침 완화)
-const TRACK_ARTIST_STRENGTH = 0.06
-const REPULSION = 2000                 // 900 → 2000 (척력 강화)
-const LINK_STRENGTH = 0.008
-const TRACK_REPULSION = 300
+const ARTIST_GENRE_STRENGTH = 0.04  // 0.006 → 0.025 (장르 클러스터링 강화)
+const TRACK_ARTIST_STRENGTH = 0.08   // 0.06 → 0.08 (트랙-아티스트 거리 강화)
+const REPULSION = 900              // 2000 → 1200 (척력 약화, 뭉침 허용)
+const LINK_STRENGTH = 0.012          // 0.008 → 0.012 (연결된 노드 인력 강화)
+const TRACK_REPULSION = 200          // 300 → 200
 const BORDER_PADDING = 40
-const VELOCITY_DECAY = 0.18   // 1 - DAMPING(0.82)
+const VELOCITY_DECAY = 0.25   // 1 - DAMPING(0.82)
 
 // Genre cluster centers as fractions of (W, H) — matches prototype layout
 const GCENTER_FRACS = {
@@ -20,19 +20,33 @@ const GCENTER_FRACS = {
 
 export function getGenreCenters(W, H, genres = []) {
   const centers = Object.fromEntries(
-    Object.entries(GCENTER_FRACS).map(([id, f]) => [id, { cx: f.cx * W, cy: f.cy * H }])
+    Object.entries(GCENTER_FRACS).map(([id, f]) => [
+      id, { cx: f.cx * W, cy: f.cy * H }
+    ])
   )
-  // Extra genres beyond the predefined 6 get radial positions
-  const extras = genres.filter(g => !GCENTER_FRACS[g.id])
-  if (extras.length) {
-    extras.forEach((g, i) => {
-      const angle = (2 * Math.PI * i) / extras.length - Math.PI / 2
-      centers[g.id] = {
-        cx: W / 2 + Math.cos(angle) * W * 0.32,
-        cy: H / 2 + Math.sin(angle) * H * 0.32,
-      }
-    })
-  }
+  
+  // 동적 장르 — 기존 6개 중심점 사이 빈 공간에 배치
+  const extras = genres.filter(g => 
+    !GCENTER_FRACS[g.id] && g.id !== 'g_unknown'
+  )
+  
+  const extraPositions = [
+    { cx: 0.75, cy: 0.15 }, // 우상단
+    { cx: 0.85, cy: 0.50 }, // 우중단
+    { cx: 0.20, cy: 0.70 }, // 좌하단
+    { cx: 0.50, cy: 0.80 }, // 중하단
+    { cx: 0.10, cy: 0.20 }, // 좌상단
+    { cx: 0.60, cy: 0.50 }, // 중앙
+  ]
+  
+  extras.forEach((g, i) => {
+    const pos = extraPositions[i % extraPositions.length]
+    centers[g.id] = {
+      cx: pos.cx * W,
+      cy: pos.cy * H,
+    }
+  })
+  
   return centers
 }
 
@@ -67,14 +81,16 @@ export function buildSimulation({ nodes, links, genreCenters, W, H }) {
   function genreAttractionForce(alpha) {
     nodes.filter(n => n.type === 'artist').forEach(n => {
       if (!n.gids?.length) return
-      let tx = 0, ty = 0
-      n.gids.forEach(gid => {
-        const c = genreCenters[gid]
-        if (c) { tx += c.cx; ty += c.cy }
-      })
-      tx /= n.gids.length; ty /= n.gids.length
-      n.vx += (tx - n.x) * ARTIST_GENRE_STRENGTH * alpha
-      n.vy += (ty - n.y) * ARTIST_GENRE_STRENGTH * alpha
+      
+      // 상위 첫 번째 장르만 사용 (g_unknown 제외)
+      const primaryGid = n.gids.find(gid => gid !== 'g_unknown')
+      if (!primaryGid) return
+      
+      const c = genreCenters[primaryGid]
+      if (!c) return
+      
+      n.vx += (c.cx - n.x) * ARTIST_GENRE_STRENGTH * alpha
+      n.vy += (c.cy - n.y) * ARTIST_GENRE_STRENGTH * alpha
     })
   }
 

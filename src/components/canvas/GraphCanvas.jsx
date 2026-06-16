@@ -34,7 +34,7 @@ export default function GraphCanvas() {
 
   const {
     nodes: storeNodes, genres,
-    mode, setMode, setAdded, removeNode,
+    mode, setMode, setAdded, removeNode, setRating,
     undo, redo,
   } = useGraphStore()
 
@@ -47,7 +47,10 @@ export default function GraphCanvas() {
   useEffect(() => { modeRef.current = mode; heatDirty.current = true; drawRef.current?.() }, [mode])
   useEffect(() => { genresRef.current = genres }, [genres])
 
-  const [tooltip, setTooltip] = useState(null)
+  const [tooltipData, setTooltipData] = useState(null)
+  const tooltipNode = tooltipData
+    ? storeNodes.find(n => n.id === tooltipData.nodeId)
+    : null
   const [simDone, setSimDone] = useState(false)
 
   const nodeMap      = useRef(new Map())
@@ -62,13 +65,14 @@ export default function GraphCanvas() {
     const ctx = cv.getContext('2d')
     const sN  = simNodesRef.current
     const sL  = simLinksRef.current
-    const m   = modeRef.current
-    const gs  = genresRef.current
+    const m            = modeRef.current
+    const effectiveMode = m === 'memo' ? 'view' : m
+    const gs           = genresRef.current
 
     ctx.clearRect(0, 0, W, H)
 
     if (heatDirty.current) {
-      heatRef.current = buildHeatmap(sN, gs, m, W, H)
+      heatRef.current = buildHeatmap(sN, gs, effectiveMode, W, H)
       heatDirty.current = false
     }
     if (heatRef.current) ctx.drawImage(heatRef.current, 0, 0)
@@ -77,7 +81,7 @@ export default function GraphCanvas() {
     const drawnGenreIds = new Set()
     sN.forEach(n => {
       if (n.type !== 'artist') return
-      if (m === 'view' && !n.added) return
+      if (effectiveMode === 'view' && !n.added) return
       if (!n.x || !n.y) return
       const topGid = n.gids?.[0]
       if (!topGid || drawnGenreIds.has(topGid)) return
@@ -99,7 +103,7 @@ export default function GraphCanvas() {
       // 아티스트-아티스트 간선만 여기서 그림
       // 트랙-부모 연결은 아래 별도 블록에서 처리
       if (n1.type !== 'artist' || n2.type !== 'artist') return
-      if (m === 'view' && (!n1.added || !n2.added)) return
+      if (effectiveMode === 'view' && (!n1.added || !n2.added)) return
       const both = n1.added && n2.added
       const gc = getGenre(n1.gids?.[0]) ?? { color: '#888888' }
       ctx.beginPath(); ctx.moveTo(n1.x, n1.y); ctx.lineTo(n2.x, n2.y)
@@ -109,7 +113,7 @@ export default function GraphCanvas() {
       ctx.stroke(); ctx.setLineDash([])
     })
 
-    const visTracks = m === 'view'
+    const visTracks = effectiveMode === 'view'
       ? sN.filter(n => n.type === 'track' && n.added)
       : sN.filter(n => n.type === 'track')
 
@@ -130,7 +134,7 @@ export default function GraphCanvas() {
       ctx.fillStyle = rgba(gc.color, nodeVis ? 0.82 : 0.28); ctx.fill()
       if (nodeVis) {
         ctx.strokeStyle = rgba(gc.color, 0.4); ctx.lineWidth = 1; ctx.stroke()
-      } else if (m === 'add') {
+      } else if (effectiveMode === 'add') {
         ctx.beginPath(); ctx.arc(t.x, t.y, r + 3, 0, Math.PI * 2)
         ctx.strokeStyle = rgba(gc.color, 0.16); ctx.lineWidth = 0.6; ctx.stroke()
       }
@@ -151,7 +155,7 @@ export default function GraphCanvas() {
       }
     })
 
-    const visArtists = m === 'view'
+    const visArtists = effectiveMode === 'view'
       ? sN.filter(n => n.type === 'artist' && n.added)
       : sN.filter(n => n.type === 'artist')
 
@@ -180,7 +184,7 @@ export default function GraphCanvas() {
         ctx.strokeStyle = 'rgba(255,255,255,0.75)'; ctx.lineWidth = 1.5; ctx.stroke()
       } else {
         ctx.fillStyle = rgba(gc.color, 0.3); ctx.fill()
-        if (m === 'add') {
+        if (effectiveMode === 'add') {
           ctx.beginPath(); ctx.arc(ar.x, ar.y, r + 4, 0, Math.PI * 2)
           ctx.strokeStyle = rgba(gc.color, 0.16); ctx.lineWidth = 0.7; ctx.stroke()
         }
@@ -200,7 +204,7 @@ export default function GraphCanvas() {
     clearTimeout(hideTimerRef.current)
     hideTimerRef.current = setTimeout(() => {
       if (!tooltipHoveredRef.current) {
-        setTooltip(null)
+        setTooltipData(null)
         hovId.current = null
         drawRef.current?.()
       }
@@ -215,13 +219,14 @@ export default function GraphCanvas() {
   const hitTest = useCallback((mx, my) => {
     const sN = simNodesRef.current
     const m  = modeRef.current
-    const visA = m === 'view' ? sN.filter(n => n.type === 'artist' && n.added) : sN.filter(n => n.type === 'artist')
+    const em   = m === 'memo' ? 'view' : m
+    const visA = em === 'view' ? sN.filter(n => n.type === 'artist' && n.added) : sN.filter(n => n.type === 'artist')
     for (const ar of visA) {
       if (ar.x == null) continue
       const dx = mx - ar.x, dy = my - ar.y
       if (dx*dx + dy*dy < 16*16) return { type: 'artist', node: ar }
     }
-    const visT = m === 'view'
+    const visT = em === 'view'
       ? sN.filter(n => n.type === 'track' && n.added)
       : sN.filter(n => n.type === 'track')
     for (const t of visT) {
@@ -241,7 +246,10 @@ export default function GraphCanvas() {
   // ── Init simulation (once on mount) ──────────────────────────────────────
   useEffect(() => {
     const gc = getGenreCenters(W, H, genres)
-    prevCountRef.current = { nodes: storeNodes.length, genres: genres.length }
+    prevCountRef.current = { 
+      nodeIds: storeNodes.map(n => n.id).join(','), 
+      genres: genres.length 
+    }
     simNodesRef.current = storeNodes.map(n => ({ ...n }))
     initNodePositions(simNodesRef.current, gc, W, H)
 
@@ -266,11 +274,12 @@ export default function GraphCanvas() {
   // ── Sync new search-added nodes / genres → full simulation rebuild ───────
   useEffect(() => {
     if (!simRef.current) return
-    const nc = storeNodeCount, gc = storeGenreCount
+    const gc = storeGenreCount
     const prev = prevCountRef.current
-    if (nc === prev.nodes && gc === prev.genres) return
-    console.log('[GraphCanvas] sync: nodes', prev.nodes, '→', nc, '| genres', prev.genres, '→', gc)
-    prevCountRef.current = { nodes: nc, genres: gc }
+    if (storeNodeIds === prev.nodeIds && gc === prev.genres) return
+    
+    prevCountRef.current = { nodeIds: storeNodeIds, genres: gc }
+    console.log('[GraphCanvas] sync: nodeIds 변경 | genres', prev.genres, '→', gc)
 
     const state = useGraphStore.getState()
     const existingPosMap = new Map(
@@ -316,7 +325,7 @@ export default function GraphCanvas() {
     simRef.current.alpha(0.3).restart()
     console.log('[sim] alpha:', simRef.current.alpha())
     heatDirty.current = true
-  }, [storeNodeCount, storeGenreCount]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [storeNodeIds, storeGenreCount]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── added 상태 변화 → sim 노드 동기화 + 새 노드 추가 ───────────────────────
   useEffect(() => {
@@ -455,7 +464,7 @@ export default function GraphCanvas() {
     heatDirty.current = true
     setAdded(id, true)
     draw()
-    setTooltip(t => t ? { ...t, node: { ...t.node, added: true } } : null)
+    setTooltipData(t => t ? { ...t, node: { ...t.node, added: true } } : null)
   }, [setAdded, draw])
 
   const handleRemoveById = useCallback((id) => {
@@ -468,18 +477,14 @@ export default function GraphCanvas() {
       node.added = false
       setAdded(id, false)
       draw()
-      setTooltip(t => t ? { ...t, node: { ...t.node, added: false } } : null)
+      setTooltipData(t => t ? { ...t, node: { ...t.node, added: false } } : null)
     } else {
       // 일반 노드: sim + store에서 완전 삭제
       simNodesRef.current = simNodesRef.current.filter(n => n.id !== id)
       nodeMap.current.delete(id)
       removeNode(id)
       draw()
-      setTooltip(t => {
-        if (!t) return null
-        if (modeRef.current === 'view') return null
-        return { ...t, node: { ...t.node, added: false } }
-      })
+      setTooltipData(null)
     }
   }, [setAdded, removeNode, draw])
 
@@ -505,8 +510,8 @@ export default function GraphCanvas() {
         if (simDone || isSimIdle()) draw()
       }
       const n = hit.node
-      setTooltip({
-        node: { ...n, parentName: hit.type === 'track' ? (nodeMap.current.get(n.artistId)?.name ?? '') : '' },
+      setTooltipData({
+        nodeId: n.id,
         nodeType: hit.type,
         x: n.x * scale,
         y: n.y * scale,
@@ -551,7 +556,7 @@ export default function GraphCanvas() {
         borderBottom: '1px solid var(--color-border)',
       }}>
         {/* 모드 버튼 — pill, active=검정 fill */}
-        {['add', 'view'].map(m => (
+        {[['add', '추가 모드'], ['view', '뷰 모드'], ['memo', '메모 모드']].map(([m, label]) => (
           <button key={m} onClick={() => setMode(m)}
                   style={{
                     padding: '4px 14px', borderRadius: 20, fontSize: 11,
@@ -562,7 +567,7 @@ export default function GraphCanvas() {
                       : { background: 'transparent', color: 'var(--color-text-secondary)', border: '1px solid var(--color-border-secondary)' }
                     ),
                   }}>
-            {m === 'add' ? '추가 모드' : '뷰 모드'}
+            {label}
           </button>
         ))}
 
@@ -628,17 +633,23 @@ export default function GraphCanvas() {
           )}
 
           {/* 툴팁 */}
-          {tooltip && (
+          {tooltipData && tooltipNode && (
             <NodeTooltip
-              node={tooltip.node}
-              nodeType={tooltip.nodeType}
-              x={tooltip.x}
-              y={tooltip.y}
+              node={{
+                ...tooltipNode,
+                parentName: tooltipData.nodeType === 'track'
+                  ? (nodeMap.current.get(tooltipNode.artistId)?.name ?? '')
+                  : ''
+              }}
+              nodeType={tooltipData.nodeType}
+              x={tooltipData.x}
+              y={tooltipData.y}
               genres={genres}
               mode={mode}
-              onAdd={() => handleAddById(tooltip.node.id)}
-              onRemove={() => handleRemoveById(tooltip.node.id)}
-              onMouseEnter={() => { tooltipHoveredRef.current = true;  cancelHide() }}
+              onAdd={() => handleAddById(tooltipNode.id)}
+              onRemove={() => handleRemoveById(tooltipNode.id)}
+              onRate={setRating}
+              onMouseEnter={() => { tooltipHoveredRef.current = true; cancelHide() }}
               onMouseLeave={() => { tooltipHoveredRef.current = false; scheduleHide() }}
             />
           )}
@@ -646,19 +657,27 @@ export default function GraphCanvas() {
       </div>
 
       {/* 장르 레전드 */}
-      <div style={{
-        display: 'flex', flexWrap: 'wrap', gap: '4px 16px',
-        padding: '6px 16px 10px',
-        borderTop: '1px solid var(--color-border)',
-        background: 'var(--color-surface)',
-      }}>
-        {genres.map(g => (
-          <div key={g.id} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, color: 'var(--color-text-secondary)', letterSpacing: '0.02em' }}>
-            <span style={{ width: 6, height: 6, borderRadius: '50%', background: g.color, display: 'inline-block', flexShrink: 0 }} />
-            {g.name}
-          </div>
-        ))}
-      </div>
+        <div style={{
+          display: 'flex', flexWrap: 'wrap', gap: '4px 16px',
+          padding: '6px 16px 10px',
+          borderTop: '1px solid var(--color-border)',
+          background: 'var(--color-surface)',
+        }}>
+          {genres
+            .filter(g => {
+              // added:true 노드에서 실제 사용된 장르만
+              return storeNodes.some(n => 
+                n.added && n.gids?.includes(g.id)
+              )
+            })
+            .map(g => (
+              <div key={g.id} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, color: 'var(--color-text-secondary)', letterSpacing: '0.02em' }}>
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: g.color, display: 'inline-block', flexShrink: 0 }} />
+                {g.name}
+              </div>
+            ))
+          }
+        </div>
     </div>
   )
 }
