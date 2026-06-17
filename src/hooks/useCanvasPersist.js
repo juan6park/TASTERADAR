@@ -17,17 +17,32 @@ export function useCanvasPersist() {
 
       clearTimeout(timerRef.current)
       timerRef.current = setTimeout(async () => {
-        // 추천 노드 제외하고 저장
+        // 추천 노드 중 added:false는 저장 제외
         const nodesToSave = state.nodes.filter(n => 
           !n.isRecommendation || n.added
         )
+
+        // 추천 노드(added:false) 관련 링크 제외
+        const recIds = new Set(
+          state.nodes
+            .filter(n => n.isRecommendation && !n.added && !n.id.match(/^a\d+$/))
+            .map(n => n.id)
+        )
+        console.log('[persist] recIds:', [...recIds])
+        console.log('[persist] state.links 첫 3개:', state.links.slice(0, 3))
+        const linksToSave = state.links.filter(l => {
+          const src = typeof l.source === 'object' ? l.source.id : l.source
+          const tgt = typeof l.target === 'object' ? l.target.id : l.target
+          return !recIds.has(src) && !recIds.has(tgt)
+        })
+
         const enrichedNodes = enrichNodesWithPositions(nodesToSave)
         try {
           await supabase.from('canvas_state').upsert(
             { 
               user_id: userId, 
               nodes: enrichedNodes, 
-              links: state.links, 
+              links: linksToSave, 
               genres: state.genres 
             },
             { onConflict: 'user_id' }

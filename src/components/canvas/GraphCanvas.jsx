@@ -65,6 +65,7 @@ export default function GraphCanvas() {
     const ctx = cv.getContext('2d')
     const sN  = simNodesRef.current
     const sL  = simLinksRef.current
+    console.log('[draw] sL 길이:', sL.length)
     const m            = modeRef.current
     const effectiveMode = m === 'memo' ? 'view' : m
     const gs           = genresRef.current
@@ -103,12 +104,12 @@ export default function GraphCanvas() {
       // 아티스트-아티스트 간선만 여기서 그림
       // 트랙-부모 연결은 아래 별도 블록에서 처리
       if (n1.type !== 'artist' || n2.type !== 'artist') return
-      if (effectiveMode === 'view' && (!n1.added || !n2.added)) return
+      if (effectiveMode === 'view' && !n1.added && !n2.added) return
       const both = n1.added && n2.added
       const gc = getGenre(n1.gids?.[0]) ?? { color: '#888888' }
       ctx.beginPath(); ctx.moveTo(n1.x, n1.y); ctx.lineTo(n2.x, n2.y)
-      ctx.strokeStyle = rgba(gc.color, both ? 0.4 : 0.15)
-      ctx.lineWidth   = both ? 1 : 0.5
+      ctx.strokeStyle = rgba(gc.color, both ? 0.5 : 0.2)
+      ctx.lineWidth   = both ? 1.2 : 0.6
       ctx.setLineDash(both ? [] : [3, 4])
       ctx.stroke(); ctx.setLineDash([])
     })
@@ -317,6 +318,8 @@ export default function GraphCanvas() {
     simNodesRef.current = newSimNodes
     nodeMap.current     = new Map(newSimNodes.map(n => [n.id, n]))
     simLinksRef.current = state.links.map(l => ({ ...l }))
+    console.log('[simLinks] 링크 수:', simLinksRef.current.length)
+    console.log('[simLinks] 첫 5개:', simLinksRef.current.slice(0, 5))
     genresRef.current   = state.genres
 
     simRef.current = buildSimulation({ nodes: simNodesRef.current, links: simLinksRef.current, genreCenters, W, H })

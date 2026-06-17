@@ -19,8 +19,8 @@ export default function SearchTab() {
   const [loading, setLoading] = useState(false)
   const [error,   setError]   = useState(null)
 
-  const debounceRef        = useRef(null)
-  const storeNodes                    = useGraphStore(s => s.nodes)
+  const debounceRef = useRef(null)
+  const storeNodes  = useGraphStore(s => s.nodes)
   const { addNode, addLink, setAdded } = useGraphStore()
 
   const runSearch = useCallback(async (q, t) => {
@@ -40,7 +40,7 @@ export default function SearchTab() {
     const q = e.target.value
     setQuery(q)
     clearTimeout(debounceRef.current)
-    debounceRef.current = setTimeout(() => runSearch(q, type), 350)
+    debounceRef.current = setTimeout(() => runSearch(q, type), 800)
   }
 
   const handleTypeChange = (t) => {
@@ -51,64 +51,54 @@ export default function SearchTab() {
 
   const isAdded = (id) => storeNodes.some(n => n.id === id && n.added)
 
-  const linkByGenre = useCallback((id, gids) => {
-    const { nodes, genres: storeGenres } = useGraphStore.getState()
-    const src = nodes.find(n => n.id === id)
-    if (src?.type !== 'artist') return
-    nodes.forEach(n => {
-      if (n.id === id || !n.added || n.type !== 'artist') return
-      if (shouldLink(src, n, storeGenres)) addLink(id, n.id)
-    })
-  }, [addLink])
-
   const handleAddArtist = useCallback(async (artist) => {
+    console.log('[handleAddArtist 시작]', artist.name)
     const genres = await getArtistGenres(artist.name)
     const gids = genres.length ? resolveGenreIds(genres) : ['g_unknown']
 
-    console.log('=== handleAddArtist ===')
-    console.log('추가할 아티스트:', artist.name)
-    console.log('genres:', genres)
-    console.log('gids:', gids)
-
-    addNode({ id: artist.id, type: 'artist', name: artist.name, gids, imageUrl: artist.imageUrl, previewUrl: null, added: true })
+    addNode({ 
+      id: artist.id, type: 'artist', name: artist.name, 
+      gids, imageUrl: artist.imageUrl, previewUrl: null, added: true 
+    })
 
     setTimeout(() => {
-      const { nodes: cur, genres: storeGenres } = useGraphStore.getState()
-      const newNode = cur.find(n => n.id === artist.id)
-
-      console.log('newNode gids:', newNode?.gids)
-      console.log('storeGenres:', storeGenres.map(g => g.id + ':' + g.name))
-
-      const candidates = cur.filter(n => n.type === 'artist' && n.added && n.id !== artist.id)
-      console.log('링크 후보 아티스트:', candidates.map(n => n.name + ' ' + JSON.stringify(n.gids)))
-
+      const { nodes: cur } = useGraphStore.getState()
+      const newNode = 
+        cur.find(n => n.id === artist.id) ??
+        cur.find(n => 
+          n.name.toLowerCase() === artist.name.toLowerCase() && n.added
+        )
+      
+      console.log('[handleAddArtist] newNode:', newNode?.name, newNode?.id)
       if (!newNode) return
-      candidates.forEach(n => {
-        const result = shouldLinkByGenre(newNode, n)
-        console.log(`shouldLink(${artist.name}, ${n.name}):`, result, '| gids1:', newNode.gids, '| gids2:', n.gids)
-        if (result) addLink(artist.id, n.id)
-      })
+
+      cur
+        .filter(n => n.type === 'artist' && n.id !== newNode.id)
+        .forEach(n => {
+          if (shouldLinkByGenre(newNode, n)) {
+            console.log('[링크 생성]', newNode.name, '↔', n.name)
+            addLink(newNode.id, n.id)
+          }
+        })
     }, 50)
 
-    loadRecommendations()
-        .then(() => console.log('[handleAddArtist] 추천 완료'))
-        .catch(e => console.error('[handleAddArtist] 추천 실패:', e))
-  }, [addNode, addLink, spotifyConnected])
+    setTimeout(() => {
+      loadRecommendations()
+        .then(() => console.log('[추천 완료]'))
+        .catch(e => console.error('[추천 실패]', e))
+    }, 1000)
+  }, [addNode, addLink])
 
   const handleAddTrack = useCallback(async (track) => {
     const genres = await getArtistGenres(track.artistName)
-    console.log('[Last.fm] track genres:', track.artistName, '→', genres)
     const gids = genres.length ? resolveGenreIds(genres) : ['g_unknown']
-
     const { nodes } = useGraphStore.getState()
     const parentExists = nodes.find(n => n.id === track.artistId)
-
     if (!parentExists) {
       addNode({ id: track.artistId, type: 'artist', name: track.artistName, gids, imageUrl: '', previewUrl: null, added: true })
     } else if (!parentExists.added) {
       setAdded(track.artistId, true)
     }
-
     addNode({ id: track.id, type: 'track', name: track.name, artistId: track.artistId, artistName: track.artistName, gids, imageUrl: track.imageUrl, previewUrl: track.previewUrl, added: true })
   }, [addNode, setAdded])
 
@@ -121,14 +111,11 @@ export default function SearchTab() {
       <p style={{ fontSize: 12, color: 'var(--color-text-secondary)', lineHeight: 1.6, margin: 0 }}>
         검색하려면 Spotify 연동이 필요해요
       </p>
-      <button
-        onClick={() => navigate('/profile')}
-        style={{
-          padding: '6px 16px', borderRadius: 20, fontSize: 11,
-          background: '#1DB954', color: '#fff', border: 'none',
-          cursor: 'pointer', fontFamily: 'inherit', fontWeight: 500,
-        }}
-      >
+      <button onClick={() => navigate('/profile')} style={{
+        padding: '6px 16px', borderRadius: 20, fontSize: 11,
+        background: '#1DB954', color: '#fff', border: 'none',
+        cursor: 'pointer', fontFamily: 'inherit', fontWeight: 500,
+      }}>
         Spotify 연동하기
       </button>
     </div>
@@ -136,7 +123,6 @@ export default function SearchTab() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
-      {/* Search input */}
       <div style={{ padding: '10px 12px 0' }}>
         <input
           value={query}
@@ -153,7 +139,6 @@ export default function SearchTab() {
         />
       </div>
 
-      {/* Type filter */}
       <div style={{ display: 'flex', gap: 4, padding: '8px 12px 0' }}>
         {Object.entries(TYPE_LABELS).map(([t, label]) => (
           <button key={t} onClick={() => handleTypeChange(t)} style={{
@@ -170,25 +155,10 @@ export default function SearchTab() {
         ))}
       </div>
 
-      {/* Results */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '8px 12px', marginTop: 4 }}>
-        {error && (
-          <p style={{ fontSize: 11, color: 'var(--color-text-tertiary)', textAlign: 'center', marginTop: 24 }}>
-            검색 중 오류가 발생했습니다.
-          </p>
-        )}
-
-        {loading && (
-          <p style={{ fontSize: 11, color: 'var(--color-text-tertiary)', textAlign: 'center', marginTop: 24 }}>
-            검색 중…
-          </p>
-        )}
-
-        {empty && (
-          <p style={{ fontSize: 11, color: 'var(--color-text-tertiary)', textAlign: 'center', marginTop: 24 }}>
-            결과가 없습니다.
-          </p>
-        )}
+        {error && <p style={{ fontSize: 11, color: 'var(--color-text-tertiary)', textAlign: 'center', marginTop: 24 }}>검색 중 오류가 발생했습니다.</p>}
+        {loading && <p style={{ fontSize: 11, color: 'var(--color-text-tertiary)', textAlign: 'center', marginTop: 24 }}>검색 중…</p>}
+        {empty && <p style={{ fontSize: 11, color: 'var(--color-text-tertiary)', textAlign: 'center', marginTop: 24 }}>결과가 없습니다.</p>}
 
         {showArtists && (
           <>
@@ -250,7 +220,6 @@ function ResultItem({ item, kind, added, onAdd, previewUrl, artistName }) {
         )}
       </div>
 
-      {/* 미리듣기 버튼 (트랙만) */}
       {isTrack && (
         <button
           onClick={() => hasPreview && play(item.id, previewUrl, item.name, artistName ?? item.artistName)}
@@ -267,7 +236,6 @@ function ResultItem({ item, kind, added, onAdd, previewUrl, artistName }) {
         </button>
       )}
 
-      {/* 추가 버튼 */}
       <button
         onClick={() => !added && onAdd()}
         style={{

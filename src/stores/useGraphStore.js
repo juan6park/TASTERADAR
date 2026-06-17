@@ -272,7 +272,7 @@ export function resolveGenreIds(genreNames) {
   })
 }
 
-const normalize = s => s.replace(/[\s\-\/]/g, '')
+const normalize = s => s.replace(/[\s\-\/]/g, '').toLowerCase()
 
 export function shouldLinkByGenre(n1, n2) {
   const { genres } = useGraphStore.getState()
@@ -284,5 +284,8 @@ export function shouldLinkByGenre(n1, n2) {
     .filter(Boolean)
   const norm1 = getNames(n1.gids).map(normalize)
   const norm2 = getNames(n2.gids).map(normalize)
+
+  console.log(`[shouldLink] ${n1.name} vs ${n2.name}:`, norm1, norm2, norm1.some(n => norm2.includes(n)))
+  
   return norm1.some(n => norm2.includes(n))
 }
