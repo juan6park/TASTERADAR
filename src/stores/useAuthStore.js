@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { supabase } from '../services/supabase'
 import { setTokenProvider, refreshAccessToken } from '../services/spotify'
 import { loadRecommendations } from '../hooks/useRecommendations'
-import { useGraphStore, DUMMY_GENRES } from './useGraphStore'
+import { useGraphStore, DUMMY_GENRES, buildInitialNodes } from './useGraphStore'
 
 export const useAuthStore = create((set, get) => ({
   user:                null,
@@ -61,19 +61,21 @@ export const useAuthStore = create((set, get) => ({
   },
 
   signOut: async () => {
+    // pending 저장 타이머 먼저 취소 — 이전 캔버스가 새 계정에 덮어쓰이는 것 방지
+    window.dispatchEvent(new Event('canvas-cancel-save'))
+
     await supabase.auth.signOut()
-    // GraphStore 초기화 — 이전 유저 캔버스 제거
     useGraphStore.setState({
-      nodes: buildInitialNodes(), // 더미 노드로 리셋
+      nodes: buildInitialNodes(),
       links: [],
       genres: DUMMY_GENRES,
       history: { past: [], future: [] },
     })
-    set({ 
-      user: null, 
-      spotifyToken: null, 
-      spotifyRefreshToken: null, 
-      tokenExpiry: null, 
+    set({
+      user: null,
+      spotifyToken: null,
+      spotifyRefreshToken: null,
+      tokenExpiry: null,
       spotifyUser: null,
       tutorialCompleted: null,
       canvasLoaded: false,
