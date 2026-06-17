@@ -104,7 +104,7 @@ export default function GraphCanvas() {
       // 아티스트-아티스트 간선만 여기서 그림
       // 트랙-부모 연결은 아래 별도 블록에서 처리
       if (n1.type !== 'artist' || n2.type !== 'artist') return
-      if (effectiveMode === 'view' && !n1.added && !n2.added) return
+      if (effectiveMode === 'view' && (!n1.added || !n2.added)) return
       const both = n1.added && n2.added
       const gc = getGenre(n1.gids?.[0]) ?? { color: '#888888' }
       ctx.beginPath(); ctx.moveTo(n1.x, n1.y); ctx.lineTo(n2.x, n2.y)

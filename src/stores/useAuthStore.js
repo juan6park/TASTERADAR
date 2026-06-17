@@ -40,8 +40,25 @@ export const useAuthStore = create((set, get) => ({
       const prevUser = get().user
       const newUser  = session?.user ?? null
       set({ user: newUser })
-      if (newUser && prevUser?.id !== newUser.id) get().loadSpotifyTokenFromDb()
-      if (!newUser) set({ spotifyToken: null, spotifyRefreshToken: null, tokenExpiry: null, spotifyUser: null })
+
+      if (newUser && prevUser?.id !== newUser.id) {
+        set({ canvasLoaded: false })
+        get().loadSpotifyTokenFromDb()
+          .then(() => get().loadCanvasState())
+          .then(() => get().loadTutorialStatus())
+          .then(() => {
+            if (get().spotifyToken) loadRecommendations().catch(() => {})
+          })
+          .finally(() => {
+            set({ canvasLoaded: true })
+          })
+      }
+      if (!newUser) {
+        set({ 
+          spotifyToken: null, spotifyRefreshToken: null, 
+          tokenExpiry: null, spotifyUser: null,
+        })
+      }
     })
   },
 
