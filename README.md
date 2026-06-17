@@ -53,7 +53,7 @@ npm run dev
 
 ---
 
-# 📁 소스코드 구조 (Directory Structure)
+### 📁 소스코드 구조 (Directory Structure)
 ```bash
 taste-radar/
 ├── src/
