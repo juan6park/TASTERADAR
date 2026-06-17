@@ -1,158 +1,105 @@
-# Taste Radar 🎵
+# Taste Radar
 
-블랙박스형 음악 추천을 탈피한 **유저 주도 음악 디깅 / 아카이빙 웹앱**.
+노드(Node) 기반의 인터랙티브 능동적 음악 취향 탐사 및 시각화 서비스
 
-Spotify API로 아티스트·트랙을 검색해 **force-directed 그래프 캔버스**에 직접 추가하고,
-Last.fm API로 가져온 장르를 **히트맵**으로 시각화해 내 취향의 지형도를 그린다.
-
-> 추천 알고리즘이 떠먹여 주는 음악이 아니라, 사용자가 스스로 노드를 쌓아 올리며
-> 자신의 음악 취향을 탐색·기록하는 경험을 목표로 한다.
-
----
-
-## ✨ 주요 기능
-
-- **그래프 캔버스** — 아티스트·트랙을 노드로 추가, 같은 장르끼리 물리 시뮬레이션으로 자동 군집
-- **장르 히트맵** — 노드 분포 위에 장르별 취향 지형도를 오버레이
-- **Spotify 검색 연동** — 아티스트/트랙 실시간 검색 후 캔버스에 추가
-- **Last.fm 장르 매핑** — Spotify가 더 이상 제공하지 않는 장르를 Last.fm 태그로 보완
-- **Undo / Redo** — 캔버스 편집 히스토리
-- **캔버스 영속화** — 로그인 계정별로 캔버스 상태를 Supabase에 자동 저장·복원
-- **취향 분석** — 추가한 노드 기반 장르 분포 통계
-
----
-
-## 🛠 기술 스택
-
-| 레이어 | 선택 |
-|--------|------|
-| Frontend | React 19 + Vite |
-| 그래프 | d3-force (force-simulation) + Canvas 2D |
-| 차트 | Recharts |
-| 상태관리 | Zustand |
-| 백엔드 / Auth / DB | Supabase |
-| 스타일 | Tailwind CSS v4 |
-| 라우팅 | React Router v7 |
-| HTTP | axios / fetch |
-| 외부 API | Spotify Web API, Last.fm API |
+Spotify API 연동을 통해 유저의 실제 청취 데이터를 가져와 동적인 캔버스 위에 구현하고 실시간 노드 조작으로 취향을 확장하는 플랫폼 
 
 ---
 
 ## 🚀 실행 방법
 
-### 1. 의존성 설치
-
+### 1. 의존성 패키지 설치
+프로젝트 루트 디렉토리에서 아래 명령어를 실행하여 필요한 패키지를 설치합니다.
 ```bash
 npm install
 ```
 
-### 2. 환경변수 설정
+---
 
-프로젝트 루트에 `.env` 파일을 만들고 아래 값을 채운다 (`.env.example` 참고):
+### 2. 환경 변수 설정
 
-```env
+프로젝트 루트에 .env 파일을 생성하고 아래의 인증 및 API 키 정보를 입력합니다. (세부 사항은 .env.example 참고)
+
+```bash
 VITE_SUPABASE_URL=https://<your-project>.supabase.co
-VITE_SUPABASE_ANON_KEY=<supabase anon key>
-VITE_SPOTIFY_CLIENT_ID=<spotify client id>
-VITE_SPOTIFY_CLIENT_SECRET=<spotify client secret>
-VITE_SPOTIFY_REDIRECT_URI=http://127.0.0.1:5173/callback
-VITE_LASTFM_API_KEY=<last.fm api key>
+VITE_SUPABASE_ANON_KEY=<supabase_anon_key>
+VITE_SPOTIFY_CLIENT_ID=<spotify_client_id>
+VITE_SPOTIFY_CLIENT_SECRET=<spotify_client_secret>
+VITE_SPOTIFY_REDIRECT_URI=[http://127.0.0.1:5173/callback](http://127.0.0.1:5173/callback)
+VITE_LASTFM_API_KEY=<last_fm_api_key>
 ```
 
-> ⚠️ Spotify는 loopback 주소로 `localhost` 대신 **`127.0.0.1`** 을 요구한다.
-> 브라우저 접속 주소와 `VITE_SPOTIFY_REDIRECT_URI`, 그리고 Spotify 대시보드에
-> 등록한 Redirect URI **세 곳이 정확히 일치**해야 OAuth가 동작한다.
+💡 주의 사항 (Spotify OAuth)
+Spotify는 보안 정책상 loopback 주소로 localhost 대신 **127.0.0.1**을 요구합니다. 브라우저 접속 주소, VITE_SPOTIFY_REDIRECT_URI, 그리고 Spotify Developer Dashboard에 등록된 Redirect URI가 모두 일치해야 인증이 정상 작동합니다.
 
-### 3. Supabase 스키마 생성
+---
 
-[`supabase_schema.sql`](./supabase_schema.sql) 내용을 Supabase Dashboard → SQL Editor에서 실행한다.
-(profiles / canvas_state 테이블, RLS 정책, 신규 유저 트리거 포함)
+### 3. 데이터베이스 스키마 생성
+Supabase Dashboard의 SQL Editor에서 supabase_schema.sql에 정의된 DDL을 실행합니다.
+
+profiles 및 canvas_state 테이블 생성
+
+RLS(Row Level Security) 정책 적용
+
+신규 회원 가입 시 프로필 자동 생성을 위한 트리거(handle_new_user) 설정
+
+---
 
 ### 4. 개발 서버 실행
-
 ```bash
 npm run dev
 ```
-
-→ `http://127.0.0.1:5173` 접속
-
-### 그 외 스크립트
-
-```bash
-npm run build     # 프로덕션 빌드
-npm run preview   # 빌드 결과 미리보기
-npm run lint      # ESLint
-```
+서버가 기동되면 브라우저를 통해 http://127.0.0.1:5173으로 접속합니다.
 
 ---
 
-## 📁 디렉토리 구조
-
-```
+# 📁 소스코드 구조 (Directory Structure)
+```bash
 taste-radar/
 ├── src/
-│   ├── pages/                 # 라우트 페이지
-│   │   ├── Landing.jsx        # 시작화면
-│   │   ├── Login.jsx          # 로그인
-│   │   ├── Register.jsx       # 회원가입
-│   │   ├── Tutorial.jsx       # 온보딩 튜토리얼
-│   │   ├── Main.jsx           # 메인 (캔버스 + 사이드패널)
-│   │   ├── Profile.jsx        # 프로필 / Spotify 연동
-│   │   └── Callback.jsx       # Spotify OAuth 콜백
+│   ├── pages/                # 라우트별 페이지 컴포넌트
+│   │   ├── Landing.jsx       # 인트로 / 서비스 시작 화면
+│   │   ├── Login.jsx         # Supabase 기반 로그인
+│   │   ├── Register.jsx      # Supabase 기반 회원가입
+│   │   ├── Tutorial.jsx      # 인터랙티브 온보딩 튜토리얼
+│   │   ├── Main.jsx          # 메인 대시보드 (캔버스 및 패널 통합)
+│   │   ├── Profile.jsx       # 사용자 프로필 및 Spotify 연동 관리
+│   │   └── Callback.jsx      # Spotify OAuth 인가 코드 처리 콜백
+│   │
 │   ├── components/
-│   │   ├── canvas/            # 그래프 렌더링
-│   │   │   ├── GraphCanvas.jsx    # D3 캔버스 루트
-│   │   │   ├── ForceGraph.js      # force-simulation 로직
-│   │   │   ├── HeatmapLayer.js    # 장르 히트맵
-│   │   │   └── NodeTooltip.jsx    # 호버 툴팁
-│   │   ├── panel/            # 사이드패널
-│   │   │   ├── SidePanel.jsx      # 슬라이딩 래퍼
-│   │   │   ├── SearchTab.jsx      # Spotify 검색
-│   │   │   ├── ArchiveTab.jsx     # 내 리스트
-│   │   │   └── AnalysisTab.jsx    # 취향 분석
-│   │   └── ui/
-│   │       ├── AudioPlayer.jsx       # 미리듣기 플레이어
-│   │       ├── ProtectedRoute.jsx    # 인증 보호 라우트
-│   │       └── SpotifyTopModal.jsx   # Top 데이터 초기 캔버스
-│   ├── stores/              # Zustand 전역 상태
-│   │   ├── useGraphStore.js      # 핵심 — 캔버스 상태
-│   │   ├── useAudioStore.js      # 재생 상태
-│   │   └── useAuthStore.js       # 인증 / Spotify 토큰
-│   ├── services/            # 외부 API 래퍼
-│   │   ├── spotify.js            # Spotify Web API
-│   │   ├── lastfm.js             # Last.fm 장르
-│   │   └── supabase.js           # Supabase 클라이언트
-│   └── hooks/
-│       ├── useCanvasPersist.js   # 캔버스 자동 저장/복원
-│       └── useRecommendations.js # 추천 노드 로드
-├── supabase_schema.sql      # DB 스키마 + RLS + 트리거
-└── .env.example             # 환경변수 템플릿
+│   │   ├── canvas/           # 인터랙티브 그래프 엔진 관련 컴포넌트
+│   │   │   ├── GraphCanvas.jsx  # D3 물리 시뮬레이션 컨테이너 및 렌더링 루트
+│   │   │   ├── ForceGraph.js    # d3-force 기반 노드/링크 계산 로직
+│   │   │   ├── HeatmapLayer.js  # 밀도 기반 장르 히트맵 오버레이 렌더러
+│   │   │   └── NodeTooltip.jsx  # 노드 호버 시 상세 정보 및 메타데이터 UI
+│   │   ├── panel/            # 메인 화면 우측 슬라이딩 사이드패널
+│   │   │   ├── SidePanel.jsx    # 패널 오픈/클로즈 래퍼 및 탭 내비게이션
+│   │   │   ├── SearchTab.jsx    # Spotify 통합 검색 및 노드 수동 추가 탭
+│   │   │   ├── ArchiveTab.jsx   # 현재 캔버스에 수집된 아카이브 리스트 탭
+│   │   │   └── AnalysisTab.jsx  # Recharts 기반 취향 통계 분석 차트 탭
+│   │   └── ui/               # 전역 공통 및 유틸리티 UI 컴포넌트
+│   │       ├── ProtectedRoute.jsx # 인증 여부에 따른 접근 제한 라우트 커스텀
+│   │       └── SpotifyTopModal.jsx # 초기 진입 시 Spotify Top 아티스트 데이터 로드 모달
+│   │
+│   ├── stores/               # Zustand 전역 상태 관리 아키텍처
+│   │   ├── useGraphStore.js     # 캔버스 데이터(Nodes, Links, Genres) 및 상태 제어 핵심 스토어
+│   │   └── useAuthStore.js      # Supabase 세션 및 Spotify Access/Refresh 토큰 관리 스토어
+│   │
+│   ├── services/             # 내·외부 인프라 스트럭처 및 API 클라이언트 래퍼
+│   │   ├── spotify.js           # Spotify Web API 통신 및 데이터 파싱
+│   │   ├── lastfm.js            # Last.fm API 기반 메타데이터/태그 수집
+│   │   └── supabase.js          # Supabase 클라이언트 인스턴스 설정
+│   │
+│   └── hooks/                # 비즈니스 로직 분리를 위한 커스텀 훅
+│       ├── useCanvasPersist.js  # Supabase 연동 데이터 실시간 자동 저장 및 복원 엔진
+│       └── useRecommendations.js # 유저 취향 기반 연관 추천 노드 비동기 생성 및 계산
+│
+├── supabase_schema.sql       # 데이터베이스 설계 명세서 (Table, RLS, Trigger)
+└── .env.example              # 애플리케이션 환경 변수 가이드 템플릿
 ```
 
 ---
 
-## 🗄 데이터 모델 (Supabase)
-
-| 테이블 | 역할 |
-|--------|------|
-| `profiles` | 사용자 프로필 + Spotify 토큰 (auth.users 1:1) |
-| `canvas_state` | 캔버스 스냅샷 (nodes / links / genres, 유저당 1행) |
-
-- 두 테이블 모두 `auth.users`를 참조하며 **RLS**로 본인 데이터만 접근 가능
-- 신규 가입 시 트리거(`handle_new_user`)가 `profiles` 행을 자동 생성
-- 그래프 상태는 jsonb로 통째 저장 (`useGraphStore` 직렬화)
-
----
-
-## 🎨 장르 처리
-
-- Spotify는 2024년 이후 응답에서 `genres` 필드를 제거 → **Last.fm 태그로 대체**
-- 아티스트의 Last.fm 상위 태그를 정규화(`k-pop`, `hip-hop` 등)해 장르로 사용
-- 태그가 없는 아티스트는 `장르 미상`(회색) 처리
-
----
-
-## 👥 팀
-
+# 👥 팀원 (Team)
 - 박주안
 - 성유민
